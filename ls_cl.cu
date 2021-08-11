@@ -34,7 +34,7 @@ static inline void cpy_rules(const ruleset_t *rules, uint32_t *buffer, uint8_t u
 }
 
 __global__ void ls(uint *lower, uint *upper, ulong num_rules, uint *header, uint *pos) {
-    uint start=(uint) blockIdx.x, step=(uint) gridDim.x;
+    uint start=(uint) blockDim.x*blockIdx.x+threadIdx.x, step=(uint) gridDim.x*blockDim.x;
 	ulong bp;
     unsigned char r;
 	for(uint i=start; i<num_rules; i+=step) {
@@ -94,7 +94,7 @@ uint8_t ls_cl_get(ls_cl_t *lscl, const ruleset_t *rules, const header_t *header)
     CHECK(cudaMemcpy(lscl->pos, &p, sizeof(uint32_t), cudaMemcpyHostToDevice));
 #endif
 
-    ls<<<1024,1>>>(lscl->lower, lscl->upper, (uint64_t) rules->num_rules, lscl->header, lscl->pos);
+    ls<<<512,512>>>(lscl->lower, lscl->upper, (uint64_t) rules->num_rules, lscl->header, lscl->pos);
 #ifdef USE_SVM
 	cudaDeviceSynchronize();
     return lscl->pos[0]==UINT_MAX?0xff:rules->rules[lscl->pos[0]].val;
