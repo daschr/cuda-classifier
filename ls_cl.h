@@ -12,6 +12,12 @@ typedef struct{
 	uint32_t *pos;
 	uint32_t *header_h;
 	uint32_t *pos_h;
+	unsigned char *new_pkt;
+	unsigned char *done_pkt;
+	unsigned char *running;
+	unsigned char *new_pkt_h;
+	unsigned char *done_pkt_h;
+	unsigned char *running_h;
 }ls_cl_t;
 
 bool ls_cl_new(ls_cl_t *lscl, const ruleset_t *rules);
