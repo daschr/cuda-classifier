@@ -13,8 +13,6 @@ extern "C" {
 #include "parser.h"
 }
 
-//#define USE_SVM
-
 static inline void check_error(cudaError_t e, const char *file, int line) {
     if(e != cudaSuccess) {
         fprintf(stderr, "[ERROR] %s in %s (line %d)\n", cudaGetErrorString(e), file, line);
@@ -34,7 +32,7 @@ static inline void cpy_rules(const ruleset_t *rules, uint32_t *buffer, uint8_t u
 }
 
 __global__ void ls(uint *lower, uint *upper, ulong num_rules, uint *header, uint *pos) {
-    uint start=(uint) blockIdx.x, step=(uint) gridDim.x;
+    uint start=(uint) blockDim.x*blockIdx.x+threadIdx.x, step=(uint) gridDim.x*blockDim.x;
 	ulong bp;
     unsigned char r;
 	for(uint i=start; i<num_rules; i+=step) {
@@ -57,15 +55,14 @@ bool ls_cl_new(ls_cl_t *lscl, const ruleset_t *rules) {
     memset(buffer, 0, bufsize);
     CHECK(cudaMalloc((void **) &lscl->lower, bufsize));
     CHECK(cudaMalloc((void **) &lscl->upper, bufsize));
-#ifdef USE_SVM
-	CHECK(cudaMallocManaged((void **) &lscl->header, sizeof(uint32_t)<<3));
-    CHECK(cudaMallocManaged((void **) &lscl->pos, sizeof(uint64_t)));
-#else
-	CHECK(cudaMalloc((void **) &lscl->header, sizeof(uint32_t)<<3));
-    CHECK(cudaMalloc((void **) &lscl->pos, sizeof(uint64_t)));
-#endif
+	
+	CHECK(cudaHostAlloc((void **) &lscl->header_h, sizeof(uint32_t)<<3, cudaHostAllocMapped));
+    CHECK(cudaHostAlloc((void **) &lscl->pos_h, sizeof(uint64_t), cudaHostAllocMapped));
 
-    cpy_rules(rules, buffer, 0);
+	CHECK(cudaHostGetDevicePointer((void **) &lscl->header, lscl->header_h, 0));
+	CHECK(cudaHostGetDevicePointer((void **) &lscl->pos, lscl->pos_h, 0));
+
+	cpy_rules(rules, buffer, 0);
     CHECK(cudaMemcpy(lscl->lower, buffer, bufsize, cudaMemcpyHostToDevice));
 
     cpy_rules(rules, buffer, 1);
@@ -77,38 +74,22 @@ bool ls_cl_new(ls_cl_t *lscl, const ruleset_t *rules) {
 }
 
 uint8_t ls_cl_get(ls_cl_t *lscl, const ruleset_t *rules, const header_t *header) {
-#ifndef USE_SVM
-#define H(X) header->h ## X
-	uint32_t h[8]= { H(1), H(2), H(3), H(4), H(5), 0, 0, 0 };
-#undef H
-#else
-#define H(X) lscl->header[X-1]=header->h ## X
+#define H(X) lscl->header_h[X-1]=header->h ## X
 	H(1); H(2); H(3); H(4); H(5);
 #undef H
-	lscl->pos[0]=UINT_MAX;
-#endif
+	lscl->pos_h[0]=UINT_MAX;
 
-#ifndef USE_SVM
-    CHECK(cudaMemcpy(lscl->header, h, sizeof(uint32_t)<<3, cudaMemcpyHostToDevice));
-    uint64_t p=UINT_MAX;
-    CHECK(cudaMemcpy(lscl->pos, &p, sizeof(uint32_t), cudaMemcpyHostToDevice));
-#endif
-
-    ls<<<1024,1>>>(lscl->lower, lscl->upper, (uint64_t) rules->num_rules, lscl->header, lscl->pos);
-#ifdef USE_SVM
+    ls<<<512,512>>>(lscl->lower, lscl->upper, (uint64_t) rules->num_rules, lscl->header, lscl->pos);
 	cudaDeviceSynchronize();
-    return lscl->pos[0]==UINT_MAX?0xff:rules->rules[lscl->pos[0]].val;
-#else
-    CHECK(cudaMemcpy(&p, lscl->pos, sizeof(uint32_t), cudaMemcpyDeviceToHost));
-	return p==UINT_MAX?0xff:rules->rules[p].val;
-#endif
+
+    return lscl->pos_h[0]==UINT_MAX?0xff:rules->rules[lscl->pos[0]].val;
 }
 
 void ls_cl_free(ls_cl_t *lscl) {
     cudaFree(lscl->lower);
     cudaFree(lscl->upper);
-    cudaFree(lscl->pos);
-    cudaFree(lscl->header);
+    cudaFreeHost(lscl->pos_h);
+    cudaFreeHost(lscl->header_h);
 }
 
 int main(int ac, char *as[]) {

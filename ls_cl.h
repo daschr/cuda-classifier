@@ -10,6 +10,8 @@ typedef struct{
 	uint64_t *num_headers;
 	uint32_t *header;
 	uint32_t *pos;
+	uint32_t *header_h;
+	uint32_t *pos_h;
 }ls_cl_t;
 
 bool ls_cl_new(ls_cl_t *lscl, const ruleset_t *rules);
