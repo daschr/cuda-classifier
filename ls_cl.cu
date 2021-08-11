@@ -43,7 +43,7 @@ __global__ void ls(	uint *lower, uint *upper, ulong num_rules, volatile uint *he
             *new_pkt=0;
         }
 
-		__syncthreads();
+		__threadfence();
 
         for(uint i=start; i<num_rules; i+=step) {
             bp=i<<3;
