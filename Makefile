@@ -1,2 +1,2 @@
 all:
-	nvcc -O3 -o lscl ls_cl.cu *.c
+	nvcc -O3 -o lscl ls_cl.cu *.c -lpthread

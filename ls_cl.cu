@@ -7,11 +7,14 @@ extern "C" {
 #include <limits.h>
 #include <sys/time.h>
 #include <cuda_runtime.h>
-
+#include <pthread.h>
 
 #include "ls_cl.h"
 #include "parser.h"
 }
+
+#define RINGBUF_SIZE 16
+#define RINGBUF_MASK 15
 
 static inline void check_error(cudaError_t e, const char *file, int line) {
     if(e != cudaSuccess) {
@@ -31,61 +34,68 @@ static inline void cpy_rules(const ruleset_t *rules, uint32_t *buffer, uint8_t u
     }
 }
 
-__global__ void ls(	uint *lower, uint *upper, ulong num_rules, volatile uint *header, uint *pos,
-                    volatile unsigned char *new_pkt, volatile unsigned char *done_pkt, volatile unsigned char *running) {
+void *get_results(void *p) {
+    ls_cl_t *lscl=(ls_cl_t *) p;
+    bool stream_running;
+    for(size_t i=0;; i=(i+1)&RINGBUF_MASK) {
+        do {
+            pthread_mutex_lock(&lscl->running_mtxs[i]);
+            stream_running=lscl->streams_running[i];
+            pthread_mutex_unlock(&lscl->running_mtxs[i]);
+            if(!lscl->running&&!stream_running) goto end;
+        } while(!stream_running);
+
+        cudaStreamSynchronize(lscl->streams[i]);
+        fprintf(lscl->outfile, "%02X\n", *lscl->pos_ring_h[i]==0xFF?0xff:lscl->ruleset->rules[*lscl->pos_ring_h[i]].val);
+        *lscl->pos_ring_h[i]=UINT_MAX;
+        lscl->streams_running[i]=0;
+    }
+end:
+    return NULL;
+}
+
+__global__ void ls(	uint *lower, uint *upper, ulong num_rules, uint *header, uint *pos) {
+
     uint start=(uint) blockDim.x*blockIdx.x+threadIdx.x, step=(uint) gridDim.x*blockDim.x;
-    
-	ulong bp;
+    ulong bp;
     unsigned char r;
-    while(*running) {
-        if(start==0) {
-			while(*new_pkt==0);
-            *new_pkt=0;
+    for(uint i=start; i<num_rules; i+=step) {
+        bp=i<<3;
+        r= lower[bp]<=header[0] & header[0]<=upper[bp];
+        ++bp;
+        r&=lower[bp]<=header[1] & header[1]<=upper[bp];
+        ++bp;
+        r&=lower[bp]<=header[2] & header[2]<=upper[bp];
+        ++bp;
+        r&=lower[bp]<=header[3] & header[3]<=upper[bp];
+        ++bp;
+        r&=lower[bp]<=header[4] & header[4]<=upper[bp];
+        if(r) {
+            atomicMin(pos, i);
+            break;
         }
-
-		__threadfence();
-
-        for(uint i=start; i<num_rules; i+=step) {
-            bp=i<<3;
-            r= lower[bp]<=header[0] & header[0]<=upper[bp];
-            ++bp;
-            r&=lower[bp]<=header[1] & header[1]<=upper[bp];
-            ++bp;
-            r&=lower[bp]<=header[2] & header[2]<=upper[bp];
-            ++bp;
-            r&=lower[bp]<=header[3] & header[3]<=upper[bp];
-            ++bp;
-            r&=lower[bp]<=header[4] & header[4]<=upper[bp];
-            if(r) {
-                atomicMin(pos, i);
-                break;
-            }
-        }
-
-		if(start==0){
-			*done_pkt=1;
-		}
     }
 }
 
-bool ls_cl_new(ls_cl_t *lscl, const ruleset_t *rules) {
+bool ls_cl_new(ls_cl_t *lscl, const ruleset_t *rules, FILE *outfile) {
+    lscl->ruleset=rules;
+    lscl->streams_running=(unsigned char *) malloc(sizeof(unsigned char)*RINGBUF_SIZE);
+    memset(lscl->streams_running, 0, sizeof(unsigned char)*RINGBUF_SIZE);
+    lscl->running=1;
+    lscl->outfile=outfile;
+
+    lscl->running_mtxs=(pthread_mutex_t *) malloc(sizeof(pthread_mutex_t)*RINGBUF_SIZE);
+    for(size_t i=0; i<RINGBUF_SIZE; ++i)
+        lscl->running_mtxs[i]=PTHREAD_MUTEX_INITIALIZER;
+
+    // lower upper buffer
+
     size_t bufsize=(sizeof(uint32_t)<<3)*rules->num_rules;
     uint32_t *buffer=(uint32_t *) malloc(bufsize);
     memset(buffer, 0, bufsize);
+
     CHECK(cudaMalloc((void **) &lscl->lower, bufsize));
     CHECK(cudaMalloc((void **) &lscl->upper, bufsize));
-
-    CHECK(cudaHostAlloc((void **) &lscl->header_h, sizeof(uint32_t)<<3, cudaHostAllocMapped));
-    CHECK(cudaHostAlloc((void **) &lscl->pos_h, sizeof(uint32_t), cudaHostAllocMapped));
-    CHECK(cudaHostAlloc((void **) &lscl->new_pkt_h, sizeof(unsigned char), cudaHostAllocMapped));
-    CHECK(cudaHostAlloc((void **) &lscl->done_pkt_h, sizeof(unsigned char), cudaHostAllocMapped));
-    CHECK(cudaHostAlloc((void **) &lscl->running_h, sizeof(unsigned char), cudaHostAllocMapped));
-
-    CHECK(cudaHostGetDevicePointer((void **) &lscl->header, lscl->header_h, 0));
-    CHECK(cudaHostGetDevicePointer((void **) &lscl->pos, lscl->pos_h, 0));
-    CHECK(cudaHostGetDevicePointer((void **) &lscl->new_pkt, lscl->new_pkt_h, 0));
-    CHECK(cudaHostGetDevicePointer((void **) &lscl->done_pkt, lscl->done_pkt_h, 0));
-    CHECK(cudaHostGetDevicePointer((void **) &lscl->running, lscl->running_h, 0));
 
     cpy_rules(rules, buffer, 0);
     CHECK(cudaMemcpy(lscl->lower, buffer, bufsize, cudaMemcpyHostToDevice));
@@ -93,43 +103,79 @@ bool ls_cl_new(ls_cl_t *lscl, const ruleset_t *rules) {
     cpy_rules(rules, buffer, 1);
     CHECK(cudaMemcpy(lscl->upper, buffer, bufsize, cudaMemcpyHostToDevice));
 
-	cudaStream_t stream;
-	CHECK(cudaStreamCreateWithFlags(&stream, 0));
-	
-	*lscl->running=1;
-	ls<<<1,1024,0,stream>>>(lscl->lower, lscl->upper, (uint64_t) rules->num_rules, lscl->header, lscl->pos, lscl->new_pkt, lscl->done_pkt, lscl->running);
+    // head pos ring buffer
+
+    lscl->header_ring_copy_h=(uint32_t **) malloc(sizeof(uint32_t *)*RINGBUF_SIZE);
+    for(size_t i=0; i<RINGBUF_SIZE; ++i) {
+        lscl->header_ring_copy_h[i]=(uint32_t *) malloc(sizeof(uint32_t)<<3);
+        memset(lscl->header_ring_copy_h[i], 0, (sizeof(uint32_t)<<3));
+    }
+
+    lscl->pos_ring_h=(uint32_t **) malloc(sizeof(uint32_t *)*RINGBUF_SIZE);
+    lscl->pos_ring=(uint32_t **) malloc(sizeof(uint32_t *)*RINGBUF_SIZE);
+    lscl->header_ring_h=(uint32_t **) malloc(sizeof(uint32_t *)*RINGBUF_SIZE);
+    lscl->header_ring=(uint32_t **) malloc(sizeof(uint32_t *)*RINGBUF_SIZE);
+
+
+    for(size_t i=0; i<RINGBUF_SIZE; ++i) {
+        CHECK(cudaHostAlloc((void **) &(lscl->header_ring_h[i]), (sizeof(uint32_t)<<3), cudaHostAllocMapped));
+        CHECK(cudaHostGetDevicePointer((void **) &(lscl->header_ring[i]), lscl->header_ring_h[i], 0));
+        CHECK(cudaHostAlloc((void **) &(lscl->pos_ring_h[i]), sizeof(uint32_t), cudaHostAllocMapped));
+        CHECK(cudaHostGetDevicePointer((void **) &(lscl->pos_ring[i]), lscl->pos_ring_h[i], 0));
+    }
+
+    lscl->streams=(cudaStream_t *) malloc(sizeof(cudaStream_t)*RINGBUF_SIZE);
+    for(size_t i=0; i<RINGBUF_SIZE; ++i)
+        CHECK(cudaStreamCreateWithFlags(lscl->streams+i, 0));
+
+    pthread_create(&lscl->getrest, NULL, get_results, (void *) lscl);
 
     free(buffer);
 
     return true;
 }
 
-uint8_t ls_cl_get(ls_cl_t *lscl, const ruleset_t *rules, const header_t *header) {
-	static const struct timespec ts={.tv_sec=0, .tv_nsec=10};
-#define H(X) lscl->header_h[X-1]=header->h ## X
+void ls_cl_get(ls_cl_t *lscl, const header_t *header) {
+    static uint32_t i=0;
+#define H(X) lscl->header_ring_copy_h[i][X-1]=header->h ## X
     H(1);
     H(2);
     H(3);
     H(4);
     H(5);
 #undef H
-    *lscl->pos_h=UINT_MAX;
-	*lscl->new_pkt_h=1;
-	*lscl->done_pkt_h=0;
 
-	while(!(*lscl->done_pkt_h)) nanosleep(&ts, NULL);
+    CHECK(cudaMemcpyAsync(lscl->header_ring_h[i], lscl->header_ring_copy_h[i],
+                          sizeof(uint32_t)<<3, cudaMemcpyHostToDevice, lscl->streams[i]));
 
-	return *lscl->pos_h==UINT_MAX?0xff:rules->rules[*lscl->pos_h].val;
+    ls<<<512,512,0,lscl->streams[i]>>>(lscl->lower, lscl->upper, (uint64_t) lscl->ruleset->num_rules,
+                                       lscl->header_ring[i], lscl->pos_ring[i]);
+
+    pthread_mutex_lock(&lscl->running_mtxs[i]);
+    lscl->streams_running[i]=1;
+    pthread_mutex_unlock(&lscl->running_mtxs[i]);
+
+    i=(i+1)&RINGBUF_MASK;
 }
 
 void ls_cl_free(ls_cl_t *lscl) {
-	printf("stopping...");
-	*lscl->running_h=0;
-	printf("stopping...");
-	cudaFree(lscl->lower);
+    lscl->running=0;
+    pthread_join(lscl->getrest, NULL);
+    cudaFree(lscl->lower);
     cudaFree(lscl->upper);
-    cudaFreeHost(lscl->pos_h);
-    cudaFreeHost(lscl->header_h);
+    for(size_t i=0; i<RINGBUF_SIZE; ++i) {
+        cudaFreeHost(lscl->pos_ring_h[i]);
+        cudaFreeHost(lscl->header_ring_h[i]);
+        free(lscl->header_ring_copy_h[i]);
+    }
+    free(lscl->pos_ring);
+    free(lscl->header_ring);
+    free(lscl->header_ring_copy_h);
+    free(lscl->pos_ring_h);
+    free(lscl->header_ring_h);
+    free(lscl->streams_running);
+    free(lscl->streams);
+    free(lscl->running_mtxs);
 }
 
 int main(int ac, char *as[]) {
@@ -155,7 +201,7 @@ int main(int ac, char *as[]) {
     ls_cl_t lscl;
 
     gettimeofday(&tv1, NULL);
-    if(!ls_cl_new(&lscl, &rules)) {
+    if(!ls_cl_new(&lscl, &rules, res_file)) {
         fputs("could not initiate ls_cl!\n", stderr);
         goto fail;
     }
@@ -164,11 +210,12 @@ int main(int ac, char *as[]) {
 
     gettimeofday(&tv1, NULL);
     for(size_t i=0; i<headers.num_headers; ++i)
-        fprintf(res_file, "%02X\n", ls_cl_get(&lscl, &rules, headers.headers+i));
+        ls_cl_get(&lscl, headers.headers+i);
+
+    ls_cl_free(&lscl);
     gettimeofday(&tv2, NULL);
     printf("CLASSIFICATION took %12lu us\n", 1000000*(tv2.tv_sec-tv1.tv_sec)+(tv2.tv_usec-tv1.tv_usec));
 
-    ls_cl_free(&lscl);
 
     return EXIT_SUCCESS;
 fail:
