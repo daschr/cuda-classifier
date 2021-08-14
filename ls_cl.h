@@ -16,7 +16,7 @@ typedef struct{
 	uint32_t **pos_ring_h;
 	const ruleset_t *ruleset;
 	pthread_mutex_t *running_mtxs;
-	unsigned char *streams_running;
+	uint8_t *streams_running;
 	cudaStream_t *streams;
 	bool running;
 	pthread_t getrest;

@@ -48,7 +48,10 @@ void *get_results(void *p) {
         cudaStreamSynchronize(lscl->streams[i]);
         fprintf(lscl->outfile, "%02X\n", *lscl->pos_ring_h[i]==0xFF?0xff:lscl->ruleset->rules[*lscl->pos_ring_h[i]].val);
         *lscl->pos_ring_h[i]=UINT_MAX;
+
+        pthread_mutex_lock(&lscl->running_mtxs[i]);
         lscl->streams_running[i]=0;
+        pthread_mutex_unlock(&lscl->running_mtxs[i]);
     }
 end:
     return NULL;
@@ -150,6 +153,13 @@ void ls_cl_get(ls_cl_t *lscl, const header_t *header) {
 
     ls<<<512,512,0,lscl->streams[i]>>>(lscl->lower, lscl->upper, (uint64_t) lscl->ruleset->num_rules,
                                        lscl->header_ring[i], lscl->pos_ring[i]);
+    uint8_t stream_running;
+    do {
+        pthread_mutex_lock(&lscl->running_mtxs[i]);
+        stream_running=lscl->streams_running[i];
+        pthread_mutex_unlock(&lscl->running_mtxs[i]);
+    } while(stream_running);
+
 
     pthread_mutex_lock(&lscl->running_mtxs[i]);
     lscl->streams_running[i]=1;
