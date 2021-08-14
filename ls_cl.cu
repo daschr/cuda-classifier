@@ -56,13 +56,14 @@ __global__ void ls(	uint *lower, uint *upper, ulong num_rules, volatile uint *he
                 break;
             }
         }
-        __syncthreads();
-        __threadfence();
+        //__syncthreads();
+        //__threadfence();
         if(start==0) {
             *new_pkt=0;
             *done_pkt=1;
             __threadfence_system();
         }
+        __syncthreads();
     }
 }
 bool ls_cl_new(ls_cl_t *lscl, const ruleset_t *rules) {
