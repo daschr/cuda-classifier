@@ -175,8 +175,8 @@ void ls_cl_get(ls_cl_t *lscl, const header_t *header) {
 }
 
 void ls_cl_free(ls_cl_t *lscl) {
-    lscl->running=0;
-    pthread_join(lscl->getrest, NULL);
+    //lscl->running=0;
+    //pthread_join(lscl->getrest, NULL);
     cudaFree(lscl->lower);
     cudaFree(lscl->upper);
     for(size_t i=0; i<RINGBUF_SIZE; ++i) {
@@ -227,11 +227,12 @@ int main(int ac, char *as[]) {
     gettimeofday(&tv1, NULL);
     for(size_t i=0; i<headers.num_headers; ++i)
         ls_cl_get(&lscl, headers.headers+i);
-
-    ls_cl_free(&lscl);
+    lscl.running=0;
+    pthread_join(lscl.running, NULL);
     gettimeofday(&tv2, NULL);
     printf("CLASSIFICATION took %12lu us\n", 1000000*(tv2.tv_sec-tv1.tv_sec)+(tv2.tv_usec-tv1.tv_usec));
 
+    ls_cl_free(&lscl);
 
     return EXIT_SUCCESS;
 fail:
