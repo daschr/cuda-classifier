@@ -7,6 +7,9 @@
 #include "stdbool.h"
 
 typedef struct{
+	bool running;
+	pthread_t getrest;
+	int mp_count;
 	uint32_t *lower;
 	uint32_t *upper;
 	uint32_t **header_ring;
@@ -18,8 +21,6 @@ typedef struct{
 	pthread_mutex_t *running_mtxs;
 	uint8_t *streams_running;
 	cudaStream_t *streams;
-	bool running;
-	pthread_t getrest;
 	FILE *outfile;
 }ls_cl_t;
 
