@@ -37,6 +37,7 @@ static inline void cpy_rules(const ruleset_t *rules, uint32_t *buffer, uint8_t u
 void *get_results(void *p) {
     ls_cl_t *lscl=(ls_cl_t *) p;
     bool stream_running;
+    int32_t pos;
     for(size_t i=0;; i=(i+1)&RINGBUF_MASK) {
         do {
             pthread_mutex_lock(&lscl->running_mtxs[i]);
@@ -46,7 +47,9 @@ void *get_results(void *p) {
         } while(!stream_running);
 
         cudaStreamSynchronize(lscl->streams[i]);
-        fprintf(lscl->outfile, "%02X\n", *lscl->pos_ring_h[i]==0xFF?0xff:lscl->ruleset->rules[*lscl->pos_ring_h[i]].val);
+        pos=*lscl->pos_ring_h[i];
+
+        fprintf(lscl->outfile, "%02X\n", pos==UINT_MAX?0xff:lscl->ruleset->rules[pos].val);
         *lscl->pos_ring_h[i]=UINT_MAX;
 
         pthread_mutex_lock(&lscl->running_mtxs[i]);
@@ -82,8 +85,8 @@ __global__ void ls(	uint *lower, uint *upper, ulong num_rules, uint *header, uin
 
 bool ls_cl_new(ls_cl_t *lscl, const ruleset_t *rules, FILE *outfile) {
     lscl->ruleset=rules;
-    lscl->streams_running=(unsigned char *) malloc(sizeof(unsigned char)*RINGBUF_SIZE);
-    memset(lscl->streams_running, 0, sizeof(unsigned char)*RINGBUF_SIZE);
+    lscl->streams_running=(uint8_t *) malloc(sizeof(uint8_t)*RINGBUF_SIZE);
+    memset(lscl->streams_running, 0, sizeof(uint8_t)*RINGBUF_SIZE);
     lscl->running=1;
     lscl->outfile=outfile;
 
@@ -153,6 +156,8 @@ void ls_cl_get(ls_cl_t *lscl, const header_t *header) {
 
     ls<<<512,512,0,lscl->streams[i]>>>(lscl->lower, lscl->upper, (uint64_t) lscl->ruleset->num_rules,
                                        lscl->header_ring[i], lscl->pos_ring[i]);
+    while(lscl->streams_running[i]);
+
     uint8_t stream_running;
     do {
         pthread_mutex_lock(&lscl->running_mtxs[i]);
