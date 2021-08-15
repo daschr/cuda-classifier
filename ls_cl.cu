@@ -147,6 +147,7 @@ int main(int ac, char *as[]) {
     }
 
     FILE *res_file=stdout;
+    uint8_t *results=NULL;
     if(ac>3) {
         if((res_file=fopen(as[3], "w"))==NULL) {
             fprintf(stderr, "could not open \"%s\" for writing!\n", as[3]);
@@ -157,6 +158,9 @@ int main(int ac, char *as[]) {
     ruleset_t rules= {.num_rules=0, .rules_size=0, .rules=NULL};
     headers_t headers= {.num_headers=0, .headers_size=0, .headers=NULL};
     if(!parse_ruleset(&rules, as[1]) || !parse_headers(&headers, as[2]))
+        goto fail;
+
+    if((results=(uint8_t *)malloc(sizeof(uint8_t)*(headers.num_headers)))==NULL)
         goto fail;
 
     struct timeval tv1, tv2;
@@ -172,9 +176,12 @@ int main(int ac, char *as[]) {
 
     gettimeofday(&tv1, NULL);
     for(size_t i=0; i<headers.num_headers; ++i)
-        fprintf(res_file, "%02X\n", ls_cl_get(&lscl, headers.headers+i, &rules));
+        results[i]=ls_cl_get(&lscl, headers.headers+i, &rules);
     gettimeofday(&tv2, NULL);
     printf("CLASSIFICATION took %12lu us\n", 1000000*(tv2.tv_sec-tv1.tv_sec)+(tv2.tv_usec-tv1.tv_usec));
+
+    for(size_t i=0; i<headers.num_headers; ++i)
+        fprintf(res_file, "%02X\n", results[i]);
 
     ls_cl_free(&lscl);
 
@@ -182,6 +189,7 @@ int main(int ac, char *as[]) {
 fail:
     free(rules.rules);
     free(headers.headers);
+    free(results);
 
     return EXIT_FAILURE;
 }
