@@ -134,6 +134,8 @@ bool ls_cl_new(ls_cl_t *lscl, const ruleset_t *rules, FILE *outfile) {
     for(size_t i=0; i<RINGBUF_SIZE; ++i)
         CHECK(cudaStreamCreateWithFlags(lscl->streams+i, 0));
 
+    CHECK(cudaDeviceGetAttribute(&lscl->mp_count, cudaDevAttrMultiProcessorCount, 0));
+
     pthread_create(&lscl->getrest, NULL, get_results, (void *) lscl);
 
     free(buffer);
@@ -151,12 +153,11 @@ void ls_cl_get(ls_cl_t *lscl, const header_t *header) {
     H(5);
 #undef H
 
-    CHECK(cudaMemcpyAsync(lscl->header_ring_h[i], lscl->header_ring_copy_h[i],
-                          sizeof(uint32_t)<<3, cudaMemcpyHostToDevice, lscl->streams[i]));
+    cudaMemcpyAsync(lscl->header_ring_h[i], lscl->header_ring_copy_h[i],
+                    sizeof(uint32_t)<<3, cudaMemcpyHostToDevice, lscl->streams[i]);
 
-    ls<<<512,512,0,lscl->streams[i]>>>(lscl->lower, lscl->upper, (uint64_t) lscl->ruleset->num_rules,
-                                       lscl->header_ring[i], lscl->pos_ring[i]);
-    while(lscl->streams_running[i]);
+    ls<<<lscl->mp_count,256,0,lscl->streams[i]>>>(lscl->lower, lscl->upper, (uint64_t) lscl->ruleset->num_rules,
+            lscl->header_ring[i], lscl->pos_ring[i]);
 
     uint8_t stream_running;
     do {
