@@ -60,23 +60,17 @@ end:
     return NULL;
 }
 
-__global__ void ls(	uint *lower, uint *upper, ulong num_rules, uint *header, uint *pos) {
+__global__ void ls(	const __restrict__ uint *lower, const __restrict__ uint *upper, const ulong num_rules, uint *header, uint *pos) {
 
     uint start=(uint) blockDim.x*blockIdx.x+threadIdx.x, step=(uint) gridDim.x*blockDim.x;
     ulong bp;
-    unsigned char r;
     for(uint i=start; i<num_rules; i+=step) {
         bp=i<<3;
-        r= lower[bp]<=header[0] & header[0]<=upper[bp];
-        ++bp;
-        r&=lower[bp]<=header[1] & header[1]<=upper[bp];
-        ++bp;
-        r&=lower[bp]<=header[2] & header[2]<=upper[bp];
-        ++bp;
-        r&=lower[bp]<=header[3] & header[3]<=upper[bp];
-        ++bp;
-        r&=lower[bp]<=header[4] & header[4]<=upper[bp];
-        if(r) {
+        if(lower[bp]<=header[0] & header[0]<=upper[bp]
+        	& lower[bp+1]<=header[1] & header[1]<=upper[bp+1]
+        	& lower[bp+2]<=header[2] & header[2]<=upper[bp+2]
+        	& lower[bp+3]<=header[3] & header[3]<=upper[bp+3]
+        	& lower[bp+4]<=header[4] & header[4]<=upper[bp+4]) {
             atomicMin(pos, i);
             break;
         }
