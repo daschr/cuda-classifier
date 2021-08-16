@@ -51,8 +51,8 @@ __global__ void ls(	const __restrict__ uint *lower,  const __restrict__ uint *up
                 break;
             }
         }
-        //__syncthreads();
-        //__threadfence();
+        __syncthreads();
+        __threadfence();
         if(start==0) {
             *new_pkt=0;
             *done_pkt=1;
