@@ -222,7 +222,7 @@ int main(int ac, char *as[]) {
     for(size_t i=0; i<headers.num_headers; ++i)
         ls_cl_get(&lscl, headers.headers+i);
     lscl.running=0;
-    pthread_join(lscl.running, NULL);
+    pthread_join(lscl.getrest, NULL);
     gettimeofday(&tv2, NULL);
     printf("CLASSIFICATION took %12lu us\n", 1000000*(tv2.tv_sec-tv1.tv_sec)+(tv2.tv_usec-tv1.tv_usec));
 
