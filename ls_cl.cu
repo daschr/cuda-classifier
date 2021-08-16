@@ -31,13 +31,13 @@ static inline void cpy_rules(const ruleset_t *rules, uint32_t *buffer, uint8_t u
     }
 }
 
-__global__ void ls(	uint *lower, uint *upper, ulong num_rules, volatile uint *header, volatile uint *pos,
-                    volatile uint *new_pkt, volatile uint *done_pkt, volatile uint32_t *running) {
+__global__ void ls(	const __restrict__ uint *lower,  const __restrict__ uint *upper, const ulong num_rules, volatile uint *header, volatile uint *pos,
+                    volatile uint8_t *new_pkt, volatile uint8_t *done_pkt, volatile uint8_t *running) {
 
     uint start=(uint) blockDim.x*blockIdx.x+threadIdx.x, step=(uint) gridDim.x*blockDim.x;
     ulong bp;
     unsigned char r;
-    for(; *running;) {
+    while(*running) {
         while(*new_pkt==0);
 
         for(uint i=start; i<num_rules; i+=step) {
@@ -89,12 +89,12 @@ bool ls_cl_new(ls_cl_t *lscl, const ruleset_t *rules) {
     CHECK(cudaHostAlloc((void **) &lscl->pos_h, sizeof(uint32_t), cudaHostAllocMapped));
     CHECK(cudaHostGetDevicePointer((void **) &lscl->pos, lscl->pos_h, 0));
 
-    CHECK(cudaHostAlloc((void **) &lscl->new_pkt_h, sizeof(uint32_t), cudaHostAllocMapped));
-    CHECK(cudaHostGetDevicePointer((void **) &lscl->new_pkt, (uint32_t *) lscl->new_pkt_h, 0));
-    CHECK(cudaHostAlloc((void **) &lscl->done_pkt_h, sizeof(uint32_t), cudaHostAllocMapped));
-    CHECK(cudaHostGetDevicePointer((void **) &lscl->done_pkt, (uint32_t *) lscl->done_pkt_h, 0));
-    CHECK(cudaHostAlloc((void **) &lscl->running_h, sizeof(uint32_t), cudaHostAllocMapped));
-    CHECK(cudaHostGetDevicePointer((void **) &lscl->running, (uint32_t *) lscl->running_h, 0));
+    CHECK(cudaHostAlloc((void **) &lscl->new_pkt_h, sizeof(uint8_t), cudaHostAllocMapped));
+    CHECK(cudaHostGetDevicePointer((void **) &lscl->new_pkt, (uint8_t *) lscl->new_pkt_h, 0));
+    CHECK(cudaHostAlloc((void **) &lscl->done_pkt_h, sizeof(uint8_t), cudaHostAllocMapped));
+    CHECK(cudaHostGetDevicePointer((void **) &lscl->done_pkt, (uint8_t *) lscl->done_pkt_h, 0));
+    CHECK(cudaHostAlloc((void **) &lscl->running_h, sizeof(uint8_t), cudaHostAllocMapped));
+    CHECK(cudaHostGetDevicePointer((void **) &lscl->running, (uint8_t *) lscl->running_h, 0));
 
     *lscl->new_pkt_h=0;
     *lscl->done_pkt_h=0;

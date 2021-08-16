@@ -13,12 +13,12 @@ typedef struct{
 	uint32_t *pos;
 	uint32_t *pos_h;
 	uint32_t *header_h;
-	uint32_t *done_pkt;
-	volatile uint32_t *done_pkt_h;
-	uint32_t *new_pkt;
-	volatile uint32_t *new_pkt_h;
-	uint32_t *running;
-	volatile uint32_t *running_h;
+	uint8_t *done_pkt;
+	volatile uint8_t *done_pkt_h;
+	uint8_t *new_pkt;
+	volatile uint8_t *new_pkt_h;
+	uint8_t *running;
+	volatile uint8_t *running_h;
 	cudaStream_t kernel_stream;
 }ls_cl_t;
 
