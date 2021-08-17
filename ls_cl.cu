@@ -110,7 +110,7 @@ bool ls_cl_new(ls_cl_t *lscl, const ruleset_t *rules) {
 
     int mp_count;
     CHECK(cudaDeviceGetAttribute(&mp_count, cudaDevAttrMultiProcessorCount, 0));
-    ls<<<mp_count, 256, 0,lscl->kernel_stream>>>(lscl->lower, lscl->upper, (uint64_t) rules->num_rules,
+    ls<<<1, 256/mp_count, 0,lscl->kernel_stream>>>(lscl->lower, lscl->upper, (uint64_t) rules->num_rules,
             lscl->header, lscl->pos, lscl->new_pkt, lscl->done_pkt, lscl->running);
 
     return true;
