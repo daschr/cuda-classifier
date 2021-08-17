@@ -38,14 +38,14 @@ __global__ void ls(	const __restrict__ uint *lower,  const __restrict__ uint *up
     ulong bp;
     __shared__ uint h[5];
     __shared__ unsigned char not_found;
-    if(!threadIdx.x) not_found=1;
 
     while(*running) {
         while(*new_pkt==0);
 
-        if(threadIdx.x==0) {
+        if(!threadIdx.x) {
             for(int i=0; i<5; ++i)
                 h[i]=header[i];
+	    not_found=1;
         }
         __syncthreads();
 
@@ -61,6 +61,7 @@ __global__ void ls(	const __restrict__ uint *lower,  const __restrict__ uint *up
                 not_found=0;
 		break;
             }
+	    __syncthreads();
         }
 
         __syncthreads();
