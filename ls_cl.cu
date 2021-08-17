@@ -36,31 +36,42 @@ __global__ void ls(	const __restrict__ uint *lower,  const __restrict__ uint *up
 
     uint start=(uint) blockDim.x*blockIdx.x+threadIdx.x, step=(uint) gridDim.x*blockDim.x;
     ulong bp;
+    __shared__ uint h[5];
     while(*running) {
         while(*new_pkt==0);
+
+        if(threadIdx.x==0) {
+            for(int i=0; i<5; ++i)
+                h[i]=header[i];
+        }
+        __syncthreads();
 
         for(uint i=start; i<num_rules; i+=step) {
             bp=i<<3;
 
-            if(lower[bp]<=header[0] & header[0]<=upper[bp]
-                    & lower[bp+1]<=header[1] & header[1]<=upper[bp+1]
-                    & lower[bp+2]<=header[2] & header[2]<=upper[bp+2]
-                    & lower[bp+3]<=header[3] & header[3]<=upper[bp+3]
-                    & lower[bp+4]<=header[4] & header[4]<=upper[bp+4]) {
-                atomicMin((uint *)pos, i);
+            if(lower[bp]<=h[0] & h[0]<=upper[bp]
+                    & lower[bp+1]<=h[1] & h[1]<=upper[bp+1]
+                    & lower[bp+2]<=h[2] & h[2]<=upper[bp+2]
+                    & lower[bp+3]<=h[3] & h[3]<=upper[bp+3]
+                    & lower[bp+4]<=h[4] & h[4]<=upper[bp+4]) {
+                atomicMin((uint *) pos, i);
                 break;
             }
         }
+
         __syncthreads();
         __threadfence();
-        if(start==0) {
+
+        if(!start) {
             *new_pkt=0;
             *done_pkt=1;
             __threadfence_system();
         }
+
         __syncthreads();
     }
 }
+
 bool ls_cl_new(ls_cl_t *lscl, const ruleset_t *rules) {
     // lower upper buffer
 
