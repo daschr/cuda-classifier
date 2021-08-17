@@ -37,19 +37,22 @@ __global__ void ls(	const __restrict__ uint *lower,  const __restrict__ uint *up
     uint start=(uint) blockDim.x*blockIdx.x+threadIdx.x, step=(uint) gridDim.x*blockDim.x;
     ulong bp;
     __shared__ uint h[5];
-    __shared__ unsigned char not_found;
+	__shared__ uint8_t found;
 
     while(*running) {
-        while(*new_pkt==0);
-
         if(!threadIdx.x) {
-            for(int i=0; i<5; ++i)
+			while(*new_pkt==0);
+
+			for(int i=0; i<5; ++i)
                 h[i]=header[i];
-	    not_found=1;
+			found=0;
+
+			__threadfence_block();
         }
+
         __syncthreads();
 
-        for(uint i=start; i<num_rules & not_found; i+=step) {
+        for(uint i=start; i<num_rules; i+=step) {
             bp=i<<3;
 
             if(lower[bp]<=h[0] & h[0]<=upper[bp]
@@ -58,22 +61,25 @@ __global__ void ls(	const __restrict__ uint *lower,  const __restrict__ uint *up
                     & lower[bp+3]<=h[3] & h[3]<=upper[bp+3]
                     & lower[bp+4]<=h[4] & h[4]<=upper[bp+4]) {
                 atomicMin((uint *) pos, i);
-                not_found=0;
-		break;
+				found=1;
+        		__threadfence_system();
+				break;
             }
-	    __syncthreads();
-        }
 
-        __syncthreads();
-        __threadfence();
+			if(found)
+					break;
+        }
+        
+		__threadfence();
+		__syncthreads();
 
         if(!start) {
-            *new_pkt=0;
+			*new_pkt=0;
             *done_pkt=1;
-            __threadfence_system();
-        }
+        	__threadfence_system();
+		}
 
-        __syncthreads();
+		__syncthreads();
     }
 }
 
@@ -116,7 +122,7 @@ bool ls_cl_new(ls_cl_t *lscl, const ruleset_t *rules) {
     int mp_count;
     CHECK(cudaDeviceGetAttribute(&mp_count, cudaDevAttrMultiProcessorCount, 0));
     ls<<<1, 256/mp_count, 0,lscl->kernel_stream>>>(lscl->lower, lscl->upper, (uint64_t) rules->num_rules,
-            lscl->header, lscl->pos, lscl->new_pkt, lscl->done_pkt, lscl->running);
+                                          lscl->header, lscl->pos, lscl->new_pkt, lscl->done_pkt, lscl->running);
 
     return true;
 }
