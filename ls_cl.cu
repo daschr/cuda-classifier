@@ -53,7 +53,8 @@ __global__ void ls(	const __restrict__ uint *lower,  const __restrict__ uint *up
         __syncthreads();
 
         for(uint i=start; i<num_rules; i+=step) {
-            bp=i<<3;
+        
+	  	bp=i<<3;
 
             if(lower[bp]<=h[0] & h[0]<=upper[bp]
                     & lower[bp+1]<=h[1] & h[1]<=upper[bp+1]
@@ -63,9 +64,8 @@ __global__ void ls(	const __restrict__ uint *lower,  const __restrict__ uint *up
                 atomicMin((uint *) pos, i);
 				found=1;
         		__threadfence_system();
-				break;
             }
-
+		__syncthreads();
 			if(found)
 					break;
         }
