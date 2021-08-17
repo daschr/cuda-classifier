@@ -5,6 +5,7 @@
 #include "parser.h"
 
 typedef struct{
+	int mp_count;
 	uint32_t *lower;
 	uint32_t *upper;
 	uint64_t *num_headers;
