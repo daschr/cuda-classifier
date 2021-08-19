@@ -23,7 +23,7 @@
 |10,000|1,000,000|**persistent**|8,103,895 μs|27,221,085 μs|
 
 For comparison: linear search on **Intel(R) Xeon(R) Gold 6254 CPU @ 3.10GHz** with **AVX-512**
-|#rules|#headers|Duration|
+|#rules|#headers|duration|
 |------|--------|--------|
 |100|100,000|7651 μs|
 |1,000|100,000|25792 μs|
