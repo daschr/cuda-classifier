@@ -38,8 +38,14 @@ __global__ void ls(	const __restrict__ uint *lower,  const __restrict__ uint *up
     ulong bp;
     __shared__ uint h[5];
     __shared__ uint8_t found;
+    __shared__ uint8_t run;
+    if(!threadIdx.x) {
+        run=*running;
+        __threadfence_block();
+    }
+    __syncthreads();
 
-    while(*running) {
+    while(run) {
         if(!threadIdx.x) {
             while(*new_pkt==0);
 
@@ -76,6 +82,11 @@ __global__ void ls(	const __restrict__ uint *lower,  const __restrict__ uint *up
             *new_pkt=0;
             *done_pkt=1;
             __threadfence_system();
+        }
+
+        if(!threadIdx.x) {
+            run=*running;
+            __threadfence_block();
         }
 
         __syncthreads();
