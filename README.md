@@ -3,6 +3,11 @@
 * performance comparison of different kernel launch techniques (simple memcpy & launch=**simple**, zero-copy mem & async launch=**async**, zero-copy mem & persistent kernel=**persistent**)
 * 5-tuple linear search for first matching rule (**highest priority**)
 
+# branches
+* simple memcpy & launch is the **master** branch
+* zero-copy mem & async launch is the **async** branch
+* zero-copy mem & persistent kernel is the **persistent** branch
+
 # benchmark
 * data generated using `gen_cls --size <RULES> --num_headers <HEADERS> --seed $(( RANDOM * RANDOM ))`
 * machines:
