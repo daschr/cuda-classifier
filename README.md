@@ -1,6 +1,6 @@
 # cuda-classifier
 
-* performance comparison of different kernel launch techniques (simple memcpy & launch=**simple**, zero-copy mem & async launch=**async**, zero-copy mem & persistent kernel=**persistent**)
+* performance comparison of different kernel launch techniques for packet classification (simple memcpy & launch=**simple**, zero-copy mem & async launch=**async**, zero-copy mem & persistent kernel=**persistent**)
 * 5-tuple linear search for first matching rule (**highest priority**)
 
 # branches
