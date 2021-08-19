@@ -15,7 +15,6 @@ typedef struct{
 	uint32_t **header_ring;
 	uint32_t **pos_ring;
 	uint32_t **header_ring_h;
-	uint32_t **header_ring_copy_h;
 	uint32_t **pos_ring_h;
 	const ruleset_t *ruleset;
 	pthread_mutex_t *running_mtxs;
