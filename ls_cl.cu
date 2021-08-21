@@ -13,7 +13,6 @@ extern "C" {
 #include "parser.h"
 }
 
-//#define USE_SVM
 
 static inline void check_error(cudaError_t e, const char *file, int line) {
     if(e != cudaSuccess) {
@@ -24,45 +23,40 @@ static inline void check_error(cudaError_t e, const char *file, int line) {
 #define CHECK(X) (check_error(X, __FILE__, __LINE__))
 
 static inline void cpy_rules(const ruleset_t *rules, uint32_t *buffer, uint8_t upper) {
+    size_t bp;
     for(size_t i=0; i<rules->num_rules; ++i) {
-        buffer[i<<3]=rules->rules[i].c1[upper];
-        buffer[(i<<3)+1]=rules->rules[i].c2[upper];
-        buffer[(i<<3)+2]=rules->rules[i].c3[upper];
-        buffer[(i<<3)+3]=rules->rules[i].c4[upper];
-        buffer[(i<<3)+4]=rules->rules[i].c5[upper];
+        bp=i<<2;
+        buffer[bp++]=rules->rules[i].c1[upper];
+        buffer[bp++]=rules->rules[i].c2[upper];
+        buffer[bp++]=(uint32_t) (rules->rules[i].c3[upper]<<16) | (uint32_t) rules->rules[i].c4[upper];
+        buffer[bp]=rules->rules[i].c5[upper];
     }
 }
 
 __global__ void ls(uint *lower, uint *upper, ulong num_rules, uint *header, uint *pos) {
     uint start=(uint) blockDim.x*blockIdx.x+threadIdx.x, step=(uint) gridDim.x*blockDim.x;
-	ulong bp;
-        for(uint i=start; i<num_rules; i+=step) {
-            bp=i<<3;
+    ulong bp;
+    for(uint i=start; i<num_rules; i+=step) {
+        bp=i<<2;
 
-            if(lower[bp]<=header[0] & header[0]<=upper[bp]
-                    & lower[bp+1]<=header[1] & header[1]<=upper[bp+1]
-                    & lower[bp+2]<=header[2] & header[2]<=upper[bp+2]
-                    & lower[bp+3]<=header[3] & header[3]<=upper[bp+3]
-                    & lower[bp+4]<=header[4] & header[4]<=upper[bp+4]) {
-                atomicMin((uint *)pos, i);
-                break;
-            }
+        if(lower[bp]<=header[0] & header[0]<=upper[bp]
+                & lower[bp+1]<=header[1] & header[1]<=upper[bp+1]
+                & __vcmpleu2(lower[bp+2], header[2]) & __vcmpgeu2(upper[bp+2], header[2])
+                & lower[bp+3]<=header[3] & header[3]<=upper[bp+3]) {
+            atomicMin((uint *)pos, i);
+            break;
         }
+    }
 }
 
 bool ls_cl_new(ls_cl_t *lscl, const ruleset_t *rules) {
-    size_t bufsize=(sizeof(uint32_t)<<3)*rules->num_rules;
+    size_t bufsize=(sizeof(uint32_t)*5)*rules->num_rules;
     uint32_t *buffer=(uint32_t *) malloc(bufsize);
     memset(buffer, 0, bufsize);
     CHECK(cudaMalloc((void **) &lscl->lower, bufsize));
     CHECK(cudaMalloc((void **) &lscl->upper, bufsize));
-#ifdef USE_SVM
-	CHECK(cudaMallocManaged((void **) &lscl->header, sizeof(uint32_t)<<3));
-    CHECK(cudaMallocManaged((void **) &lscl->pos, sizeof(uint64_t)));
-#else
-	CHECK(cudaMalloc((void **) &lscl->header, sizeof(uint32_t)<<3));
+    CHECK(cudaMalloc((void **) &lscl->header, sizeof(uint32_t)*5));
     CHECK(cudaMalloc((void **) &lscl->pos, sizeof(uint64_t)));
-#endif
 
     cpy_rules(rules, buffer, 0);
     CHECK(cudaMemcpy(lscl->lower, buffer, bufsize, cudaMemcpyHostToDevice));
@@ -72,37 +66,24 @@ bool ls_cl_new(ls_cl_t *lscl, const ruleset_t *rules) {
 
     free(buffer);
 
-	CHECK(cudaDeviceGetAttribute(&lscl->mp_count, cudaDevAttrMultiProcessorCount, 0));
+    CHECK(cudaDeviceGetAttribute(&lscl->mp_count, cudaDevAttrMultiProcessorCount, 0));
 
     return true;
 }
 
 uint8_t ls_cl_get(ls_cl_t *lscl, const ruleset_t *rules, const header_t *header) {
-#ifndef USE_SVM
 #define H(X) header->h ## X
-	uint32_t h[8]= { H(1), H(2), H(3), H(4), H(5), 0, 0, 0 };
+    uint32_t h[4]= { H(1), H(2), (uint32_t) (H(3)<<16) | (uint32_t) H(4), H(5) };
 #undef H
-#else
-#define H(X) lscl->header[X-1]=header->h ## X
-	H(1); H(2); H(3); H(4); H(5);
-#undef H
-	lscl->pos[0]=UINT_MAX;
-#endif
 
-#ifndef USE_SVM
-    CHECK(cudaMemcpy(lscl->header, h, sizeof(uint32_t)<<3, cudaMemcpyHostToDevice));
+    CHECK(cudaMemcpy(lscl->header, h, sizeof(uint32_t)*4, cudaMemcpyHostToDevice));
     uint64_t p=UINT_MAX;
     CHECK(cudaMemcpy(lscl->pos, &p, sizeof(uint32_t), cudaMemcpyHostToDevice));
-#endif
 
     ls<<<lscl->mp_count,256>>>(lscl->lower, lscl->upper, (uint64_t) rules->num_rules, lscl->header, lscl->pos);
-#ifdef USE_SVM
-	cudaDeviceSynchronize();
-    return lscl->pos[0]==UINT_MAX?0xff:rules->rules[lscl->pos[0]].val;
-#else
+
     CHECK(cudaMemcpy(&p, lscl->pos, sizeof(uint32_t), cudaMemcpyDeviceToHost));
-	return p==UINT_MAX?0xff:rules->rules[p].val;
-#endif
+    return p==UINT_MAX?0xff:rules->rules[p].val;
 }
 
 void ls_cl_free(ls_cl_t *lscl) {
