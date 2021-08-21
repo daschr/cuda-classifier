@@ -50,12 +50,12 @@ __global__ void ls(uint *lower, uint *upper, ulong num_rules, uint *header, uint
 }
 
 bool ls_cl_new(ls_cl_t *lscl, const ruleset_t *rules) {
-    size_t bufsize=(sizeof(uint32_t)*5)*rules->num_rules;
+    size_t bufsize=(sizeof(uint32_t)<<2)*rules->num_rules;
     uint32_t *buffer=(uint32_t *) malloc(bufsize);
     memset(buffer, 0, bufsize);
     CHECK(cudaMalloc((void **) &lscl->lower, bufsize));
     CHECK(cudaMalloc((void **) &lscl->upper, bufsize));
-    CHECK(cudaMalloc((void **) &lscl->header, sizeof(uint32_t)*5));
+    CHECK(cudaMalloc((void **) &lscl->header, sizeof(uint32_t<<2));
     CHECK(cudaMalloc((void **) &lscl->pos, sizeof(uint64_t)));
 
     cpy_rules(rules, buffer, 0);
@@ -76,7 +76,7 @@ uint8_t ls_cl_get(ls_cl_t *lscl, const ruleset_t *rules, const header_t *header)
     uint32_t h[4]= { H(1), H(2), (uint32_t) (H(3)<<16) | (uint32_t) H(4), H(5) };
 #undef H
 
-    CHECK(cudaMemcpy(lscl->header, h, sizeof(uint32_t)*4, cudaMemcpyHostToDevice));
+    CHECK(cudaMemcpy(lscl->header, h, sizeof(uint32_t)<<2, cudaMemcpyHostToDevice));
     uint64_t p=UINT_MAX;
     CHECK(cudaMemcpy(lscl->pos, &p, sizeof(uint32_t), cudaMemcpyHostToDevice));
 
