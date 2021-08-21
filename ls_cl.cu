@@ -22,12 +22,13 @@ static inline void check_error(cudaError_t e, const char *file, int line) {
 #define CHECK(X) (check_error(X, __FILE__, __LINE__))
 
 static inline void cpy_rules(const ruleset_t *rules, uint32_t *buffer, uint8_t upper) {
+    size_t bp;
     for(size_t i=0; i<rules->num_rules; ++i) {
-        buffer[i<<3]=rules->rules[i].c1[upper];
-        buffer[(i<<3)+1]=rules->rules[i].c2[upper];
-        buffer[(i<<3)+2]=rules->rules[i].c3[upper];
-        buffer[(i<<3)+3]=rules->rules[i].c4[upper];
-        buffer[(i<<3)+4]=rules->rules[i].c5[upper];
+        bp=i<<2;
+        buffer[bp++]=rules->rules[i].c1[upper];
+        buffer[bp++]=rules->rules[i].c2[upper];
+        buffer[bp++]=(uint32_t) (rules->rules[i].c3[upper]<<16) | (uint32_t) rules->rules[i].c4[upper];
+        buffer[bp]=rules->rules[i].c5[upper];
     }
 }
 
@@ -36,7 +37,7 @@ __global__ void ls(	const __restrict__ uint *lower,  const __restrict__ uint *up
 
     uint start=(uint) blockDim.x*blockIdx.x+threadIdx.x, step=(uint) gridDim.x*blockDim.x;
     ulong bp;
-    __shared__ uint h[5];
+    __shared__ uint h[4];
     __shared__ uint8_t found;
     __shared__ uint8_t run;
     if(!threadIdx.x) {
@@ -49,7 +50,7 @@ __global__ void ls(	const __restrict__ uint *lower,  const __restrict__ uint *up
         if(!threadIdx.x) {
             while(*new_pkt==0);
 
-            for(int i=0; i<5; ++i)
+            for(int i=0; i<4; ++i)
                 h[i]=header[i];
             found=0;
 
@@ -59,13 +60,12 @@ __global__ void ls(	const __restrict__ uint *lower,  const __restrict__ uint *up
         __syncthreads();
 
         for(uint i=start; i<num_rules; i+=step) {
-            bp=i<<3;
+            bp=i<<2;
 
             if(lower[bp]<=h[0] & h[0]<=upper[bp]
                     & lower[bp+1]<=h[1] & h[1]<=upper[bp+1]
-                    & lower[bp+2]<=h[2] & h[2]<=upper[bp+2]
-                    & lower[bp+3]<=h[3] & h[3]<=upper[bp+3]
-                    & lower[bp+4]<=h[4] & h[4]<=upper[bp+4]) {
+                    & __vcmpleu2(lower[bp+2], h[2]) & __vcmpgeu2(upper[bp+2], h[2])
+                    & lower[bp+3]<=h[3] & h[3]<=upper[bp+3]) {
                 atomicMin((uint *) pos, i);
                 found=1;
                 __threadfence_system();
@@ -96,7 +96,7 @@ __global__ void ls(	const __restrict__ uint *lower,  const __restrict__ uint *up
 bool ls_cl_new(ls_cl_t *lscl, const ruleset_t *rules) {
     // lower upper buffer
 
-    size_t bufsize=(sizeof(uint32_t)<<3)*rules->num_rules;
+    size_t bufsize=(sizeof(uint32_t)<<2)*rules->num_rules;
     uint32_t *buffer=(uint32_t *) malloc(bufsize);
     memset(buffer, 0, bufsize);
 
@@ -111,7 +111,7 @@ bool ls_cl_new(ls_cl_t *lscl, const ruleset_t *rules) {
 
     free(buffer);
 
-    CHECK(cudaHostAlloc((void **) &lscl->header_h, (sizeof(uint32_t)<<3), cudaHostAllocMapped));
+    CHECK(cudaHostAlloc((void **) &lscl->header_h, (sizeof(uint32_t)<<2), cudaHostAllocMapped));
     CHECK(cudaHostGetDevicePointer((void **) &lscl->header, lscl->header_h, 0));
     CHECK(cudaHostAlloc((void **) &lscl->pos_h, sizeof(uint32_t), cudaHostAllocMapped));
     CHECK(cudaHostGetDevicePointer((void **) &lscl->pos, lscl->pos_h, 0));
@@ -139,11 +139,10 @@ bool ls_cl_new(ls_cl_t *lscl, const ruleset_t *rules) {
 
 uint8_t ls_cl_get(ls_cl_t *lscl, const header_t *header, const ruleset_t *rules) {
 #define H(X) lscl->header_h[X-1]=header->h ## X
-    H(1);
-    H(2);
-    H(3);
-    H(4);
-    H(5);
+    lscl->header[0]=header->h1;
+    lscl->header[1]=header->h2;
+    lscl->header_h[2]=(uint32_t) (header->h3<<16) | (uint32_t) header->h4;
+    lscl->header[3]=header->h5;
 #undef H
 
     *lscl->pos_h=UINT_MAX;
