@@ -139,10 +139,10 @@ bool ls_cl_new(ls_cl_t *lscl, const ruleset_t *rules) {
 
 uint8_t ls_cl_get(ls_cl_t *lscl, const header_t *header, const ruleset_t *rules) {
 #define H(X) lscl->header_h[X-1]=header->h ## X
-    lscl->header[0]=header->h1;
-    lscl->header[1]=header->h2;
+    lscl->header_h[0]=header->h1;
+    lscl->header_h[1]=header->h2;
     lscl->header_h[2]=(uint32_t) (header->h3<<16) | (uint32_t) header->h4;
-    lscl->header[3]=header->h5;
+    lscl->header_h[3]=header->h5;
 #undef H
 
     *lscl->pos_h=UINT_MAX;
