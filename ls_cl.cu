@@ -64,7 +64,7 @@ __global__ void ls(	const __restrict__ uint *lower,  const __restrict__ uint *up
 
             if(lower[bp]<=h[0] & h[0]<=upper[bp]
                     & lower[bp+1]<=h[1] & h[1]<=upper[bp+1]
-                    & __vcmpleu2(lower[bp+2], h[2]) & __vcmpgeu2(upper[bp+2], h[2])
+                    & (__vcmpleu2(lower[bp+2], h[2]) & __vcmpgeu2(upper[bp+2], h[2]))==0xffffffff
                     & lower[bp+3]<=h[3] & h[3]<=upper[bp+3]) {
                 atomicMin((uint *) pos, i);
                 found=1;
