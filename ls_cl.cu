@@ -41,7 +41,7 @@ __global__ void ls(uint *lower, uint *upper, ulong num_rules, uint *header, uint
 
         if(lower[bp]<=header[0] & header[0]<=upper[bp]
                 & lower[bp+1]<=header[1] & header[1]<=upper[bp+1]
-                & __vcmpleu2(lower[bp+2], header[2]) & __vcmpgeu2(upper[bp+2], header[2])
+                & (__vcmpleu2(lower[bp+2], header[2]) & __vcmpgeu2(upper[bp+2], header[2]))==0xffffffff
                 & lower[bp+3]<=header[3] & header[3]<=upper[bp+3]) {
             atomicMin((uint *)pos, i);
             break;
@@ -55,7 +55,7 @@ bool ls_cl_new(ls_cl_t *lscl, const ruleset_t *rules) {
     memset(buffer, 0, bufsize);
     CHECK(cudaMalloc((void **) &lscl->lower, bufsize));
     CHECK(cudaMalloc((void **) &lscl->upper, bufsize));
-    CHECK(cudaMalloc((void **) &lscl->header, sizeof(uint32_t<<2));
+    CHECK(cudaMalloc((void **) &lscl->header, sizeof(uint32_t)<<2));
     CHECK(cudaMalloc((void **) &lscl->pos, sizeof(uint64_t)));
 
     cpy_rules(rules, buffer, 0);
