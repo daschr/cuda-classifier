@@ -61,10 +61,10 @@ end:
     return NULL;
 }
 
-__global__ void ls(	const __restrict__ uint *lower, const __restrict__ uint *upper, const ulong num_rules, const __restrict__ uint *header, uint *pos) {
+__global__ void ls(	const __restrict__ uint *lower, const __restrict__ uint *upper, const ulong rules_size, 
+					const __restrict__ uint *header, uint *pos) {
 
-    uint start=(uint) blockDim.x*blockIdx.x+threadIdx.x, step=(uint) gridDim.x*blockDim.x;
-    ulong bp;
+    ulong start=blockDim.x*blockIdx.x+threadIdx.x, step=(gridDim.x*blockDim.x)<<2;
     __shared__ uint8_t found;
     __shared__ uint h[4];
 
@@ -77,13 +77,12 @@ __global__ void ls(	const __restrict__ uint *lower, const __restrict__ uint *upp
     }
     __syncthreads();
 
-    for(uint i=start; i<num_rules; i+=step) {
-        bp=i<<2;
-        if(lower[bp]<=h[0] & h[0]<=upper[bp]
-                & lower[bp+1]<=h[1] & h[1]<=upper[bp+1]
-                & ((__vcmpleu2(lower[bp+2], h[2]) & __vcmpleu2(h[2], upper[bp+2])) == 0xffffffff)
-                & lower[bp+3]<=h[3] & h[3]<=upper[bp+3]) {
-            atomicMin(pos, i);
+    for(ulong i=start<<2; i<rules_size; i+=step) {
+        if(lower[i]<=h[0] & h[0]<=upper[i]
+                & lower[i+1]<=h[1] & h[1]<=upper[i+1]
+                & ((__vcmpleu2(lower[i+2], h[2]) & __vcmpleu2(h[2], upper[i+2])) == 0xffffffff)
+                & lower[i+3]<=h[3] & h[3]<=upper[i+3]) {
+            atomicMin(pos, i>>2);
             found=1;
             __threadfence_system();
         }
@@ -153,7 +152,7 @@ void ls_cl_get(ls_cl_t *lscl, const header_t *header) {
     lscl->header_ring_h[i][2]=((uint32_t) header->h3<<16)|(uint32_t) header->h4;
     lscl->header_ring_h[i][3]=header->h5;
 
-    ls<<<1,64,0,lscl->streams[i]>>>(lscl->lower, lscl->upper, (uint64_t) lscl->ruleset->num_rules,
+    ls<<<1,64,0,lscl->streams[i]>>>(lscl->lower, lscl->upper, (uint64_t) lscl->ruleset->num_rules<<2,
                                     lscl->header_ring[i], lscl->pos_ring[i]);
 
     uint8_t stream_running;
