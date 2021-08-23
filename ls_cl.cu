@@ -42,7 +42,6 @@ __global__ void ls(	const __restrict__ uint *lower,  const __restrict__ uint *up
     __shared__ uint8_t run;
     if(!threadIdx.x) {
         run=*running;
-        __threadfence_block();
     }
     __syncthreads();
 
@@ -53,8 +52,6 @@ __global__ void ls(	const __restrict__ uint *lower,  const __restrict__ uint *up
             for(int i=0; i<4; ++i)
                 h[i]=header[i];
             found=0;
-
-            __threadfence_block();
         }
 
         __syncthreads();
@@ -73,18 +70,15 @@ __global__ void ls(	const __restrict__ uint *lower,  const __restrict__ uint *up
                 break;
         }
 
-        __threadfence();
         __syncthreads();
 
         if(!start) {
             *new_pkt=0;
             *done_pkt=1;
-            __threadfence_system();
         }
 
         if(!threadIdx.x) {
             run=*running;
-            __threadfence_block();
         }
 
         __syncthreads();
