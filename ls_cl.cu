@@ -75,6 +75,7 @@ __global__ void ls(	const __restrict__ uint *lower, const __restrict__ uint *upp
             h[i]=header[i];
         __threadfence_block();
     }
+
     __syncthreads();
 
     for(ulong i=start<<2; i<rules_size; i+=step) {
@@ -152,7 +153,7 @@ void ls_cl_get(ls_cl_t *lscl, const header_t *header) {
     lscl->header_ring_h[i][2]=((uint32_t) header->h3<<16)|(uint32_t) header->h4;
     lscl->header_ring_h[i][3]=header->h5;
 
-    ls<<<1,32,0,lscl->streams[i]>>>(lscl->lower, lscl->upper, (uint64_t) lscl->ruleset->num_rules<<2,
+    ls<<<1,128,0,lscl->streams[i]>>>(lscl->lower, lscl->upper, (uint64_t) lscl->ruleset->num_rules<<2,
                                     lscl->header_ring[i], lscl->pos_ring[i]);
 
     uint8_t stream_running;
