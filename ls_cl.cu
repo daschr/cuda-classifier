@@ -32,11 +32,11 @@ static inline void cpy_rules(const ruleset_t *rules, uint32_t *buffer, uint8_t u
     }
 }
 
-__global__ void ls(	const __restrict__ uint *lower,  const __restrict__ uint *upper, const ulong num_rules, volatile uint *header, volatile uint *pos,
+__global__ void ls(	const __restrict__ uint *lower,  const __restrict__ uint *upper, const ulong rules_size, 
+					volatile uint *header, volatile uint *pos,
                     volatile uint8_t *new_pkt, volatile uint8_t *done_pkt, volatile uint8_t *running) {
 
-    uint start=(uint) blockDim.x*blockIdx.x+threadIdx.x, step=(uint) gridDim.x*blockDim.x;
-    ulong bp;
+    ulong start=blockDim.x*blockIdx.x+threadIdx.x, step=(gridDim.x*blockDim.x)<<2;
     __shared__ uint h[4];
     __shared__ uint8_t found;
     __shared__ uint8_t run;
@@ -59,14 +59,12 @@ __global__ void ls(	const __restrict__ uint *lower,  const __restrict__ uint *up
 
         __syncthreads();
 
-        for(uint i=start; i<num_rules; i+=step) {
-            bp=i<<2;
-
-            if(lower[bp]<=h[0] & h[0]<=upper[bp]
-                    & lower[bp+1]<=h[1] & h[1]<=upper[bp+1]
-                    & (__vcmpleu2(lower[bp+2], h[2]) & __vcmpgeu2(upper[bp+2], h[2]))==0xffffffff
-                    & lower[bp+3]<=h[3] & h[3]<=upper[bp+3]) {
-                atomicMin((uint *) pos, i);
+        for(ulong i=start<<2; i<rules_size; i+=step) {
+            if(lower[i]<=h[0] & h[0]<=upper[i]
+                    & lower[i+1]<=h[1] & h[1]<=upper[i+1]
+                    & (__vcmpleu2(lower[i+2], h[2]) & __vcmpgeu2(upper[i+2], h[2]))==0xffffffff
+                    & lower[i+3]<=h[3] & h[3]<=upper[i+3]) {
+                atomicMin((uint *) pos, i>>2);
                 found=1;
                 __threadfence_system();
             }
@@ -131,7 +129,7 @@ bool ls_cl_new(ls_cl_t *lscl, const ruleset_t *rules) {
 
     int mp_count;
     CHECK(cudaDeviceGetAttribute(&mp_count, cudaDevAttrMultiProcessorCount, 0));
-    ls<<<1, 256/mp_count, 0,lscl->kernel_stream>>>(lscl->lower, lscl->upper, (uint64_t) rules->num_rules,
+    ls<<<1, 256/mp_count, 0,lscl->kernel_stream>>>(lscl->lower, lscl->upper, (uint64_t) rules->num_rules<<2,
             lscl->header, lscl->pos, lscl->new_pkt, lscl->done_pkt, lscl->running);
 
     return true;
