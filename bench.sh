@@ -14,6 +14,8 @@ if (( $# == 0 )); then
 		exit 1
 fi
 
+cd "${WORKING_DIR:-.}" || exit 1
+
 if (( $#==1 )); then
 	echo "|#rules|#headers|type|$1|"
 			echo "|------|--------|----|$(eval printf "%0.1s" -{1..${#1}})|"
