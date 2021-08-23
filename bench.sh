@@ -36,7 +36,7 @@ for nheaders in 100000 1000000; do
 					if (( $#==1 )); then
 						printf "|%'d|%'d|%s|%'d μs|\n" "$nrules" "$nheaders" "${names[$i]}" "$d"
 					else
-						printf "%s%'d μs\n" "$(head -n $line "$2" | tail -n1)" "$d"
+						printf "%s%'d μs|\n" "$(head -n $line "$2" | tail -n1)" "$d"
 					fi
 					line=$((++line))
 				done
