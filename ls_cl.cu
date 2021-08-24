@@ -32,14 +32,15 @@ static inline void cpy_rules(const ruleset_t *rules, uint32_t *buffer, uint8_t u
     }
 }
 
-__global__ void ls(	const __restrict__ uint *lower,  const __restrict__ uint *upper, const ulong rules_size, 
-					volatile uint *header, volatile uint *pos,
+__global__ void ls(	const __restrict__ uint *lower,  const __restrict__ uint *upper, const ulong rules_size,
+                    volatile uint *header, volatile uint *pos,
                     volatile uint8_t *new_pkt, volatile uint8_t *done_pkt, volatile uint8_t *running) {
 
     ulong start=blockDim.x*blockIdx.x+threadIdx.x, step=(gridDim.x*blockDim.x)<<2;
     __shared__ uint h[4];
     __shared__ uint8_t found;
     __shared__ uint8_t run;
+    uint p;
     if(!threadIdx.x) {
         run=*running;
     }
@@ -56,20 +57,24 @@ __global__ void ls(	const __restrict__ uint *lower,  const __restrict__ uint *up
 
         __syncthreads();
 
-        for(ulong i=start<<2; i<rules_size; i+=step) {
-            if(lower[i]<=h[0] & h[0]<=upper[i]
-                    & lower[i+1]<=h[1] & h[1]<=upper[i+1]
-                    & (__vcmpleu2(lower[i+2], h[2]) & __vcmpgeu2(upper[i+2], h[2]))==0xffffffff
-                    & lower[i+3]<=h[3] & h[3]<=upper[i+3]) {
-                atomicMin((uint *) pos, i>>2);
+        for(uint i=start<<2; i<rules_size; i+=step) {
+            p=lower[i]<=h[0] & h[0]<=upper[i]
+              & lower[i+1]<=h[1] & h[1]<=upper[i+1]
+              & (__vcmpleu2(lower[i+2], h[2]) & __vcmpgeu2(upper[i+2], h[2]))==0xffffffff
+              & lower[i+3]<=h[3] & h[3]<=upper[i+3]?i>>2:0xffffffff;
+#pragma unroll
+            for(int t=16; t>0; t>>=1)
+                p=umin(p, __shfl_down_sync(0xffffffff, p, t));
+
+            if(!(threadIdx.x&31)&p!=0xffffffff) {
+                atomicMin((uint *) pos, p);
                 found=1;
                 __threadfence_system();
             }
-
+            __syncthreads();
             if(found)
                 break;
         }
-
         __syncthreads();
 
         if(!start) {
@@ -124,7 +129,7 @@ bool ls_cl_new(ls_cl_t *lscl, const ruleset_t *rules) {
     int mp_count;
     CHECK(cudaDeviceGetAttribute(&mp_count, cudaDevAttrMultiProcessorCount, 0));
     ls<<<1, 128, 0,lscl->kernel_stream>>>(lscl->lower, lscl->upper, (uint64_t) rules->num_rules<<2,
-            lscl->header, lscl->pos, lscl->new_pkt, lscl->done_pkt, lscl->running);
+                                          lscl->header, lscl->pos, lscl->new_pkt, lscl->done_pkt, lscl->running);
 
     return true;
 }
