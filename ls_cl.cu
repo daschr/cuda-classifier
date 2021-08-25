@@ -73,7 +73,7 @@ __global__ void ls(	const __restrict__ uint *lower,  const __restrict__ uint *up
                 __threadfence_system();
             }
 
-            if((!start) & (i>rules_size))
+            if((!threadIdx.x) & (i>rules_size))
                 found=1;
             
 			i+=step;
