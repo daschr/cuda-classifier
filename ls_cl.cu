@@ -64,10 +64,9 @@ end:
 __global__ void ls(	const __restrict__ uint *lower, const __restrict__ uint *upper, const ulong rules_size,
                     const __restrict__ uint *header, uint *pos) {
 
-    ulong start=blockDim.x*blockIdx.x+threadIdx.x, step=(gridDim.x*blockDim.x)<<2;
+    ulong i=(blockDim.x*blockIdx.x+threadIdx.x)<<2, step=(gridDim.x*blockDim.x)<<2;
     __shared__ uint8_t found;
     __shared__ uint h[4];
-    ulong i;
     uint8_t r;
 
     if(!threadIdx.x) {
@@ -79,7 +78,6 @@ __global__ void ls(	const __restrict__ uint *lower, const __restrict__ uint *upp
     }
 
     __syncthreads();
-    i=start<<2;
     while(!found) {
         r=i<rules_size?lower[i]<=h[0] & h[0]<=upper[i]
           & lower[i+1]<=h[1] & h[1]<=upper[i+1]
@@ -92,7 +90,7 @@ __global__ void ls(	const __restrict__ uint *lower, const __restrict__ uint *upp
             __threadfence_system();
         }
 
-        if((!start) & (i>rules_size))
+        if((!threadIdx.x) & (i>rules_size))
             found=1;
 
         i+=step;
