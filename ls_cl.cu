@@ -55,6 +55,9 @@ __global__ void ls(const __restrict__ uint *lower, const __restrict__ uint *uppe
             found=1;
         }
 
+        if((!threadIdx.x) & (i>=rules_size))
+            found=1;
+
         i+=step;
         __syncthreads();
     }
