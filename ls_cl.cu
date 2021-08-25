@@ -37,22 +37,26 @@ __global__ void ls(const __restrict__ uint *lower, const __restrict__ uint *uppe
                    const __restrict__ uint *header, uint *pos) {
     uint start=(uint) blockDim.x*blockIdx.x+threadIdx.x, step=(uint) (gridDim.x*blockDim.x)<<2;
     __shared__ uint8_t found;
+    ulong i=start<<2;
+    uint8_t r;
+
     if(!threadIdx.x)
         found=0;
+
     __syncthreads();
-    for(uint i=start<<2; i<rules_size; i+=step) {
-        if(lower[i]<=header[0] & header[0]<=upper[i]
+    while(!found) {
+        r=i<rules_size?lower[i]<=header[0] & header[0]<=upper[i]
           & lower[i+1]<=header[1] & header[1]<=upper[i+1]
           & (__vcmpleu2(lower[i+2], header[2]) & __vcmpgeu2(upper[i+2], header[2]))==0xffffffff
-          & lower[i+3]<=header[3] & header[3]<=upper[i+3]) {
-			atomicMin(pos, i>>2);
+          & lower[i+3]<=header[3] & header[3]<=upper[i+3]:0;
+
+        if(r) {
+            atomicMin((uint *) pos, i>>2);
             found=1;
         }
-        
-		__syncthreads();
-        
-		if(found)
-            break;
+
+        i+=step;
+        __syncthreads();
     }
 }
 
