@@ -61,12 +61,14 @@ end:
     return NULL;
 }
 
-__global__ void ls(	const __restrict__ uint *lower, const __restrict__ uint *upper, const ulong rules_size, 
-					const __restrict__ uint *header, uint *pos) {
+__global__ void ls(	const __restrict__ uint *lower, const __restrict__ uint *upper, const ulong rules_size,
+                    const __restrict__ uint *header, uint *pos) {
 
     ulong start=blockDim.x*blockIdx.x+threadIdx.x, step=(gridDim.x*blockDim.x)<<2;
     __shared__ uint8_t found;
     __shared__ uint h[4];
+    ulong i;
+    uint8_t r;
 
     if(!threadIdx.x) {
         found=0;
@@ -77,18 +79,24 @@ __global__ void ls(	const __restrict__ uint *lower, const __restrict__ uint *upp
     }
 
     __syncthreads();
+    i=start<<2;
+    while(!found) {
+        r=i<rules_size?lower[i]<=h[0] & h[0]<=upper[i]
+          & lower[i+1]<=h[1] & h[1]<=upper[i+1]
+          & (__vcmpleu2(lower[i+2], h[2]) & __vcmpgeu2(upper[i+2], h[2]))==0xffffffff
+          & lower[i+3]<=h[3] & h[3]<=upper[i+3]:0;
 
-    for(ulong i=start<<2; i<rules_size; i+=step) {
-        if(lower[i]<=h[0] & h[0]<=upper[i]
-                & lower[i+1]<=h[1] & h[1]<=upper[i+1]
-                & ((__vcmpleu2(lower[i+2], h[2]) & __vcmpleu2(h[2], upper[i+2])) == 0xffffffff)
-                & lower[i+3]<=h[3] & h[3]<=upper[i+3]) {
-            atomicMin(pos, i>>2);
+        if(r) {
+            atomicMin((uint *) pos, i>>2);
             found=1;
             __threadfence_system();
         }
-        if(found)
-            break;
+
+        if((!start) & (i>rules_size))
+            found=1;
+
+        i+=step;
+        __syncthreads();
     }
 }
 
@@ -154,7 +162,7 @@ void ls_cl_get(ls_cl_t *lscl, const header_t *header) {
     lscl->header_ring_h[i][3]=header->h5;
 
     ls<<<1,128,0,lscl->streams[i]>>>(lscl->lower, lscl->upper, (uint64_t) lscl->ruleset->num_rules<<2,
-                                    lscl->header_ring[i], lscl->pos_ring[i]);
+                                     lscl->header_ring[i], lscl->pos_ring[i]);
 
     uint8_t stream_running;
     do {
