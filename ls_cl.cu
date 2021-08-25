@@ -40,10 +40,13 @@ __global__ void ls(	const __restrict__ uint *lower,  const __restrict__ uint *up
     __shared__ uint h[4];
     __shared__ uint8_t found;
     __shared__ uint8_t run;
-    uint p;
+    ulong i;
+    uint8_t r;
+
     if(!threadIdx.x) {
         run=*running;
     }
+
     __syncthreads();
 
     while(run) {
@@ -57,24 +60,23 @@ __global__ void ls(	const __restrict__ uint *lower,  const __restrict__ uint *up
 
         __syncthreads();
 
-        for(uint i=start<<2; i<rules_size; i+=step) {
-            p=lower[i]<=h[0] & h[0]<=upper[i]
+        i=start<<2;
+        while(!found) {
+            r=i<rules_size?lower[i]<=h[0] & h[0]<=upper[i]
               & lower[i+1]<=h[1] & h[1]<=upper[i+1]
               & (__vcmpleu2(lower[i+2], h[2]) & __vcmpgeu2(upper[i+2], h[2]))==0xffffffff
-              & lower[i+3]<=h[3] & h[3]<=upper[i+3]?i>>2:0xffffffff;
-#pragma unroll
-            for(int t=16; t>0; t>>=1)
-                p=umin(p, __shfl_down_sync(0xffffffff, p, t));
+              & lower[i+3]<=h[3] & h[3]<=upper[i+3]:0;
 
-            if(!(threadIdx.x&31)&p!=0xffffffff) {
-                atomicMin((uint *) pos, p);
+            if(r) {
+                atomicMin((uint *) pos, i>>2);
                 found=1;
                 __threadfence_system();
             }
+
+            i+=step;
             __syncthreads();
-            if(found)
-                break;
         }
+
         __syncthreads();
 
         if(!start) {
