@@ -35,29 +35,27 @@ static inline void cpy_rules(const ruleset_t *rules, uint32_t *buffer, uint8_t u
 
 __global__ void ls(const __restrict__ uint *lower, const __restrict__ uint *upper, const ulong rules_size,
                    const __restrict__ uint *header, uint *pos) {
-    uint start=(uint) blockDim.x*blockIdx.x+threadIdx.x, step=(uint) (gridDim.x*blockDim.x)<<2;
-    __shared__ volatile uint8_t found;
-    ulong i=start<<2;
-    uint8_t r;
-
-    if(!threadIdx.x)
+    ulong i=((blockDim.x*blockIdx.x+threadIdx.x)>>2)<<2, step=(gridDim.x*blockDim.x);
+    __shared__ uint8_t found;
+    uint8_t r, t=threadIdx.x&3;
+	uint mask=0xf<<((threadIdx.x&31)-t);
+    
+	if(!threadIdx.x)
         found=0;
 
     __syncthreads();
     while(!found) {
-        r=lower[i]<=header[0] & header[0]<=upper[i];;
-        r&= lower[i+1]<=header[1] & header[1]<=upper[i+1];
-        r&= (__vcmpleu2(lower[i+2], header[2]) & __vcmpgeu2(upper[i+2], header[2]))==0xffffffff;
-        r&= lower[i+3]<=header[3] & header[3]<=upper[i+3];
+        r=t==2?(__vcmpleu2(lower[i+t], header[2]) & __vcmpgeu2(upper[2], header[i+t]))==0xffffffff:
+				lower[i+t]<=header[t] & header[t]<=upper[i+t];
 
-        if(r) {
+        if((!t)&__all_sync(mask, r)) {
             atomicMin((uint *) pos, i>>2);
             found=1;
         }
 
         i+=step;
 
-        if((!threadIdx.x) & (i>=rules_size))
+		if((!threadIdx.x) & (i>=rules_size))
             found=1;
 
         __syncthreads();
