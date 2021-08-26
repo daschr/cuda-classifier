@@ -32,8 +32,8 @@ static inline void cpy_rules(const ruleset_t *rules, uint32_t *buffer, uint8_t u
     }
 }
 
-__global__ void ls(	const __restrict__ uint *lower,  const __restrict__ uint *upper, const ulong rules_size,
-                    volatile uint *header, volatile uint *pos,
+__global__ void ls(	const uint *__restrict__ lower,  const uint *__restrict__ upper, const ulong rules_size,
+                    volatile uint *__restrict__ header, volatile uint *__restrict__ pos,
                     volatile uint8_t *new_pkt, volatile uint8_t *done_pkt, volatile uint8_t *running) {
 
     ulong start=blockDim.x*blockIdx.x+threadIdx.x, step=(gridDim.x*blockDim.x)<<2;
