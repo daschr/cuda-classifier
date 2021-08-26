@@ -61,8 +61,8 @@ end:
     return NULL;
 }
 
-__global__ void ls(	const __restrict__ uint *lower, const __restrict__ uint *upper, const ulong rules_size,
-                    const __restrict__ uint *header, uint *pos) {
+__global__ void ls(	const uint *__restrict__ lower, const uint *__restrict__ upper, const ulong rules_size,
+                    const uint *__restrict__ header, uint *__restrict__ pos) {
 
     ulong i=(blockDim.x*blockIdx.x+threadIdx.x)<<2, step=(gridDim.x*blockDim.x)<<2;
     __shared__ uint8_t found;
