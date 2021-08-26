@@ -36,7 +36,7 @@ static inline void cpy_rules(const ruleset_t *rules, uint32_t *buffer, uint8_t u
 __global__ void ls(const __restrict__ uint *lower, const __restrict__ uint *upper, const ulong rules_size,
                    const __restrict__ uint *header, uint *pos) {
     uint start=(uint) blockDim.x*blockIdx.x+threadIdx.x, step=(uint) (gridDim.x*blockDim.x)<<2;
-    __shared__ uint8_t found;
+    __shared__ volatile uint8_t found;
     ulong i=start<<2;
     uint8_t r;
 
@@ -45,20 +45,21 @@ __global__ void ls(const __restrict__ uint *lower, const __restrict__ uint *uppe
 
     __syncthreads();
     while(!found) {
-        r=i<rules_size?lower[i]<=header[0] & header[0]<=upper[i]
-          & lower[i+1]<=header[1] & header[1]<=upper[i+1]
-          & (__vcmpleu2(lower[i+2], header[2]) & __vcmpgeu2(upper[i+2], header[2]))==0xffffffff
-          & lower[i+3]<=header[3] & header[3]<=upper[i+3]:0;
+        r=lower[i]<=header[0] & header[0]<=upper[i];++i;
+        r&= lower[i]<=header[1] & header[1]<=upper[i];++i;
+        r&= (__vcmpleu2(lower[i], header[2]) & __vcmpgeu2(upper[i], header[2]))==0xffffffff;++i;
+        r&= lower[i]<=header[3] & header[3]<=upper[i];
 
         if(r) {
             atomicMin((uint *) pos, i>>2);
             found=1;
         }
 
+        i+=step;
+
         if((!threadIdx.x) & (i>=rules_size))
             found=1;
 
-        i+=step;
         __syncthreads();
     }
 }
@@ -94,7 +95,7 @@ uint8_t ls_cl_get(ls_cl_t *lscl, const ruleset_t *rules, const header_t *header)
     uint64_t p=UINT_MAX;
     CHECK(cudaMemcpy(lscl->pos, &p, sizeof(uint32_t), cudaMemcpyHostToDevice));
 
-    ls<<<1,128>>>(lscl->lower, lscl->upper, (uint64_t) rules->num_rules<<2, lscl->header, lscl->pos);
+    ls<<<lscl->mp_count,128>>>(lscl->lower, lscl->upper, (uint64_t) rules->num_rules<<2, lscl->header, lscl->pos);
 
     CHECK(cudaMemcpy(&p, lscl->pos, sizeof(uint32_t), cudaMemcpyDeviceToHost));
     return p==UINT_MAX?0xff:rules->rules[p].val;
