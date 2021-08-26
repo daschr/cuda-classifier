@@ -47,7 +47,7 @@ __global__ void ls(const __restrict__ uint *lower, const __restrict__ uint *uppe
     while(!found) {
         r=t==2?(__vcmpleu2(lower[i+t], header[2]) & __vcmpgeu2(upper[2], header[i+t]))==0xffffffff:
           lower[i+t]<=header[t] & header[t]<=upper[i+t];
-        __syncwarp();
+
         if(__all_sync(mask, r)&(!t)) {
             atomicMin((uint *) pos, i>>2);
             found=1;
