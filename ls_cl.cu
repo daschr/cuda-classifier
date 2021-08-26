@@ -33,12 +33,13 @@ static inline void cpy_rules(const ruleset_t *rules, uint32_t *buffer, uint8_t u
     }
 }
 
-__global__ void ls(const __restrict__ uint *lower, const __restrict__ uint *upper, const ulong rules_size,
-                   const __restrict__ uint *header, uint *pos) {
+__global__ void ls(const uint *__restrict__ lower, const uint *__restrict__ upper, const ulong rules_size,
+                   const uint *__restrict__ header, uint *__restrict__ pos) {
     ulong i=((blockDim.x*blockIdx.x+threadIdx.x)>>2)<<2, step=(gridDim.x*blockDim.x);
     __shared__ uint8_t found;
     uint8_t r, t=threadIdx.x&3;
-    const uint mask=0xf<<((threadIdx.x&31)-t);
+    r=(threadIdx.x&31)-t;
+    const uint mask1=0xb<<r;//, mask2=0x4<<r, mask3=0x1<<r;
 
     if(!threadIdx.x)
         found=0;
@@ -48,7 +49,8 @@ __global__ void ls(const __restrict__ uint *lower, const __restrict__ uint *uppe
         r=t==2?(__vcmpleu2(lower[i+t], header[2]) & __vcmpgeu2(upper[2], header[i+t]))==0xffffffff:
           lower[i+t]<=header[t] & header[t]<=upper[i+t];
 
-        if(__all_sync(mask, r)&(!t)) {
+        if(__all_sync(mask1, r)&(!t)){ 
+		//if(__shfl_sync(mask2, r, mask3)){
             atomicMin((uint *) pos, i>>2);
             found=1;
         }
