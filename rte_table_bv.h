@@ -30,8 +30,6 @@ struct rte_table_bv_field {
 };
 
 struct rte_table_bv_params {
-	uint32_t num_rules;
-
 	uint32_t num_fields;
 	// size needs to be  >=num_fields
 	const struct rte_table_bv_field_def *field_defs;
@@ -41,6 +39,8 @@ struct rte_table_bv_key {
 	uint32_t *buf; // size = sum(field_defs[*].size)
 	uint32_t val;
 };
+
+extern struct rte_table_ops rte_table_array_ops;
 
 #ifdef __cplusplus
 }

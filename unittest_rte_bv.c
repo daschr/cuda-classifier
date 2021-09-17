@@ -61,7 +61,7 @@ int main(int ac, char *as[]){
 		goto fail;
 
 	rte_bv_markers_t m;
-	
+
 	if(rte_bv_markers_create(&m))
 		goto fail;
 	
@@ -77,6 +77,7 @@ int main(int ac, char *as[]){
 	bv_r.bv_bs=(256>>5)+1;
 	bv_r.ranges=(uint32_t *) malloc(sizeof(uint32_t)*4*r.num_ranges);
 	bv_r.bvs=(uint32_t *) malloc(sizeof(uint32_t)*2*bv_r.bv_bs*r.num_ranges);
+	memset(bv_r.bvs, 0, sizeof(uint32_t)*2*bv_r.bv_bs*r.num_ranges);
 
 	rte_bv_markers_to_ranges(&m, 0, 1, &bv_r);
 	rte_bv_markers_free(&m);
@@ -95,10 +96,10 @@ int main(int ac, char *as[]){
 
 	free(bv_r.ranges);
 	free(bv_r.bvs);
-	//rte_eal_cleanup();
+	rte_eal_cleanup();
 
 	return EXIT_SUCCESS;
 	fail:
-		//rte_eal_cleanup();
+		rte_eal_cleanup();
 		return EXIT_FAILURE;		
 }

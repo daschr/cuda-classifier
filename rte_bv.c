@@ -11,7 +11,7 @@ extern "C" {
 
 int rte_bv_markers_create(rte_bv_markers_t *markers) {
     struct rte_hash_parameters params= {
-        .name=NULL,
+        .name="",
         .entries=RTE_BV_MARKERS_MAX_ENTRIES,
         .reserved=0,
         .key_len=sizeof(uint32_t),
