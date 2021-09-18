@@ -9,7 +9,7 @@ extern "C" {
 
 #include <dpdk/rte_table.h>
 
-#define RTE_TABLE_BV_MAX_RANGES 0xffffff
+#define RTE_TABLE_BV_MAX_RANGES 10000
 #define RTE_TABLE_BV_BS	(RTE_TABLE_BV_MAX_RANGES>>5)
 
 enum {
@@ -40,7 +40,7 @@ struct rte_table_bv_key {
 	uint32_t val;
 };
 
-extern struct rte_table_ops rte_table_array_ops;
+extern struct rte_table_ops rte_table_bv_ops;
 
 #ifdef __cplusplus
 }

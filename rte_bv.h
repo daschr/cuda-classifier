@@ -8,7 +8,7 @@ extern "C" {
 #include <stdint.h>
 #include <dpdk/rte_hash.h>
 
-#define RTE_BV_MARKERS_MAX_ENTRIES 1<<24
+#define RTE_BV_MARKERS_MAX_ENTRIES 100000
 #define RTE_BV_MARKERS_LIST_STND_SIZE 1024
 
 typedef struct {

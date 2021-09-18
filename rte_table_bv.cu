@@ -6,6 +6,7 @@ extern "C" {
 #endif
 
 #include "rte_bv.h"
+#include <dpdk/rte_log.h>
 #include <stdlib.h>
 
 struct rte_table_bv {
@@ -29,12 +30,15 @@ struct rte_table_bv {
 static inline int is_error(cudaError_t e, const char *file, int line) {
     if(e!=cudaSuccess) {
         fprintf(stderr, "[rte_table_bv] error: %s in %s (line %d)\n", cudaGetErrorString(e), file, line);
-        return 0;
+        return 1;
     }
-    return 1;
+    return 0;
 }
 
 static int rte_table_bv_free(void *t_r) {
+	if(t_r==NULL)
+			return 0;
+
     struct rte_table_bv *t=(struct rte_table_bv *) t_r;
 
     cudaFreeHost(t->act_buf);
@@ -61,13 +65,15 @@ static void *rte_table_bv_create(void *params, int socket_id, uint32_t entry_siz
     struct rte_table_bv_params *p=(struct rte_table_bv_params *) params;
     struct rte_table_bv *t=(struct rte_table_bv *) malloc(sizeof(struct rte_table_bv));
     memset(t, 0, sizeof(struct rte_table_bv));
-
+	
     t->num_fields=p->num_fields;
     t->field_defs=p->field_defs;
 
+	t->ranges_db=(uint32_t **) malloc(sizeof(uint32_t *)*(t->num_fields<<1));
+	t->bvs_db=(uint32_t **) malloc(sizeof(uint32_t *)*(t->num_fields<<1));
 #define CHECK(X) if(IS_ERROR(X)) return NULL
     CHECK(cudaHostAlloc((void **) &t->act_buf_h, sizeof(uint8_t), cudaHostAllocMapped));
-    CHECK(cudaHostGetDevicePointer((void **) &t->act_buf, &t->act_buf_h, 0));
+    CHECK(cudaHostGetDevicePointer((void **) &t->act_buf, t->act_buf_h, 0));
 	
 	CHECK(cudaMalloc((void **) &t->ranges_db_dev, sizeof(uint32_t *)*t->num_fields*2));
 	CHECK(cudaMalloc((void **) &t->bvs_db_dev, sizeof(uint32_t *)*t->num_fields*2));
@@ -92,9 +98,10 @@ static void *rte_table_bv_create(void *params, int socket_id, uint32_t entry_siz
     t->bv_markers=(rte_bv_markers_t *) malloc(sizeof(rte_bv_markers_t)*t->num_fields);
 
     for(size_t i=0; i<t->num_fields; ++i) {
-        if(!rte_bv_markers_create(&t->bv_markers[i])) {
+        if(rte_bv_markers_create(&t->bv_markers[i])) {
             rte_table_bv_free(t);
-            return NULL;
+            rte_log(RTE_LOG_ERR, RTE_LOGTYPE_HASH, "Error creating marker!\n");
+			return NULL;
         }
     }
 

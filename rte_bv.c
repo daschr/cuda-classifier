@@ -6,12 +6,17 @@ extern "C" {
 #include "rte_bv.h"
 #include <dpdk/rte_jhash.h>
 #include <dpdk/rte_lcore.h>
+#include <dpdk/rte_errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 int rte_bv_markers_create(rte_bv_markers_t *markers) {
-    struct rte_hash_parameters params= {
-        .name="",
+	static size_t c=0;
+	static char b[12];
+	sprintf(b,"%lu",c);
+	printf("b: %s\n", b);
+	struct rte_hash_parameters params= {
+        .name=b,
         .entries=RTE_BV_MARKERS_MAX_ENTRIES,
         .reserved=0,
         .key_len=sizeof(uint32_t),
@@ -22,14 +27,13 @@ int rte_bv_markers_create(rte_bv_markers_t *markers) {
     };
 
     if((markers->table=rte_hash_create(&params))==NULL) {
-#ifdef DEBUG
         fprintf(stderr, "[rte_bv_markers_create|%d] error creating hash table: %s\n", __LINE__, rte_strerror(rte_errno));
-#endif
         return 1;
     }
 
     markers->max_value=0;
     markers->num_lists=0;
+	++c;;
     return 0;
 }
 
