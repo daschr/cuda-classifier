@@ -11,11 +11,10 @@ extern "C" {
 #include <stdlib.h>
 
 int rte_bv_markers_create(rte_bv_markers_t *markers) {
-	static size_t c=0;
-	static char b[12];
-	sprintf(b,"%lu",c);
-	printf("b: %s\n", b);
-	struct rte_hash_parameters params= {
+    static size_t c=0;
+    static char b[12];
+    sprintf(b,"%lu",c);
+    struct rte_hash_parameters params= {
         .name=b,
         .entries=RTE_BV_MARKERS_MAX_ENTRIES,
         .reserved=0,
@@ -33,7 +32,7 @@ int rte_bv_markers_create(rte_bv_markers_t *markers) {
 
     markers->max_value=0;
     markers->num_lists=0;
-	++c;;
+    ++c;
     return 0;
 }
 
@@ -41,7 +40,7 @@ int rte_bv_markers_range_add(rte_bv_markers_t *markers, const uint32_t *from_to,
     rte_bv_marker_list_t *l;
     for(int i=0; i<2;) {
         l=NULL;
-        if(rte_hash_lookup_data(markers->table, &from_to[i], (void **) &l)>0) {
+        if(rte_hash_lookup_data(markers->table, &from_to[i], (void **) &l)>=0) {
             if(l->num_markers[i] >= l->size[i]) {
                 l->size[i]<<=1;
                 l->list[i]=(rte_bv_marker_t *) realloc(l->list[i], sizeof(rte_bv_marker_t)*l->size[i]);
@@ -56,15 +55,17 @@ int rte_bv_markers_range_add(rte_bv_markers_t *markers, const uint32_t *from_to,
 
             l->size[0]=RTE_BV_MARKERS_LIST_STND_SIZE;
             l->size[1]=RTE_BV_MARKERS_LIST_STND_SIZE;
-            l->list[0]=(rte_bv_marker_t *) malloc(sizeof(rte_bv_marker_t)*l->size[i]);
-            l->list[1]=(rte_bv_marker_t *) malloc(sizeof(rte_bv_marker_t)*l->size[i]);
+            l->list[0]=(rte_bv_marker_t *) malloc(sizeof(rte_bv_marker_t)*l->size[0]);
+            l->list[1]=(rte_bv_marker_t *) malloc(sizeof(rte_bv_marker_t)*l->size[1]);
             if(rte_hash_add_key_data(markers->table, &from_to[i], l)) {
-                fprintf(stderr, "Error whole adding entry to hash table\n");
+                fprintf(stderr, "Error while adding entry to hash table\n");
             }
         }
 
-        if(!l->list[i])
+        if(!l->list[i]) {
+            fprintf(stderr, "l->list[i]==NULL\n");
             return 0;
+        }
 
         for(size_t p=0; p<l->num_markers[i]; ++p) {
             if(!l->list[i][p].valid) {
@@ -101,6 +102,15 @@ void rte_bv_markers_range_del(rte_bv_markers_t *markers, const uint32_t *from_to
 }
 
 void rte_bv_markers_free(rte_bv_markers_t *markers) {
+    uint32_t n=0, i;
+    rte_bv_marker_list_t *l;
+
+    while(rte_hash_iterate(markers->table, (const void **) &i, (void **) &l, &n)>=0){
+    	free(l->list[0]);
+		free(l->list[1]);
+		free(l);
+	}
+
     rte_hash_free(markers->table);
 }
 
@@ -134,8 +144,10 @@ void rte_bv_add_range_host(rte_bv_ranges_t *ranges, uint32_t from, uint32_t to, 
 }
 
 void rte_bv_add_range_gpu(rte_bv_ranges_t *ranges, uint32_t from, uint32_t to, size_t bv_size, const uint32_t *bv) {
-    ranges->ranges[ranges->num_ranges<<1]=from;
-    ranges->ranges[(ranges->num_ranges<<1)+1]=to;
+    cudaMemcpy(ranges->ranges+(ranges->num_ranges<<1), &from, sizeof(uint32_t), cudaMemcpyHostToDevice);
+    cudaMemcpy(ranges->ranges+((ranges->num_ranges<<1)+1), &to, sizeof(uint32_t), cudaMemcpyHostToDevice);
+    //ranges->ranges[ranges->num_ranges<<1]=from;
+    //ranges->ranges[(ranges->num_ranges<<1)+1]=to;
     cudaMemcpy(ranges->bvs+(ranges->num_ranges*ranges->bv_bs), bv, sizeof(uint32_t)*bv_size, cudaMemcpyHostToDevice);
     ++ranges->num_ranges;
 }
@@ -152,18 +164,16 @@ static int sort_vp_list(const void *a_r, const void *b_r) {
 }
 
 int rte_bv_markers_to_ranges(rte_bv_markers_t *markers, const uint8_t gpu, const uint8_t cast_type, rte_bv_ranges_t *ranges) {
-	void (*add_range)(rte_bv_ranges_t *, uint32_t, uint32_t, size_t, const uint32_t *)=gpu?&rte_bv_add_range_gpu:&rte_bv_add_range_host;
+    void (*add_range)(rte_bv_ranges_t *, uint32_t, uint32_t, size_t, const uint32_t *)=gpu?&rte_bv_add_range_gpu:&rte_bv_add_range_host;
 
     const size_t bv_size=(markers->max_value>>5)+1;
     uint32_t *bv=(uint32_t *) malloc(sizeof(uint32_t)*bv_size);
     memset(bv, 0, sizeof(uint32_t)*bv_size);
-
     //create sorted array of marker lists
     vp_t *marker_lists=(vp_t *) malloc(sizeof(vp_t)*markers->num_lists);
     uint32_t n=0;
     for(vp_t *i=marker_lists; rte_hash_iterate(markers->table, (const void **) &i->v, (void **) &i->l, &n)>=0; ++i);
     qsort(marker_lists, markers->num_lists, sizeof(vp_t), sort_vp_list);
-
 
     uint32_t prev, cur=0;
     uint8_t first=1;

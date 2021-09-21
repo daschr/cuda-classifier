@@ -7,9 +7,10 @@ extern "C" {
 
 #include <stdint.h>
 
+#include "rte_bv.h"
 #include <dpdk/rte_table.h>
 
-#define RTE_TABLE_BV_MAX_RANGES 10000
+#define RTE_TABLE_BV_MAX_RANGES RTE_BV_MARKERS_MAX_ENTRIES>>1
 #define RTE_TABLE_BV_BS	(RTE_TABLE_BV_MAX_RANGES>>5)
 
 enum {
@@ -36,8 +37,9 @@ struct rte_table_bv_params {
 };
 
 struct rte_table_bv_key {
-	uint32_t *buf; // size = sum(field_defs[*].size)
-	uint32_t val;
+	uint32_t *buf; // size = sum(rte_table_bv_params[*].num_fields*2)
+	uint32_t pos;
+	uint8_t val;
 };
 
 extern struct rte_table_ops rte_table_bv_ops;

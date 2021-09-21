@@ -1,28 +1,21 @@
-#ifndef _inc_parser
-#define _inc_parser
+#ifndef __INCLUDE_PARSER
+#define __INCLUDE_PARSER
 
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include "rte_bv.h"
 
 #define INITIAL_BUFSIZE 16
 
 typedef struct {
-    uint32_t c1[2];
-    uint32_t c2[2];
-    uint16_t c3[2];
-    uint16_t c4[2];
-    uint8_t c5[2];
-    uint8_t val;
-} rule5_t;
-
-typedef struct {
     size_t num_rules;
     size_t rules_size;
-    rule5_t *rules;
+    struct rte_table_bv_key **rules;
 } ruleset_t;
 
 bool parse_ruleset(ruleset_t *ruleset, const char *file);
+void free_ruleset(ruleset_t *rules);
 
 typedef struct {
     uint32_t h1;

@@ -9,7 +9,7 @@ extern "C" {
 #include <dpdk/rte_hash.h>
 
 #define RTE_BV_MARKERS_MAX_ENTRIES 100000
-#define RTE_BV_MARKERS_LIST_STND_SIZE 1024
+#define RTE_BV_MARKERS_LIST_STND_SIZE 24
 
 typedef struct {
     uint32_t value;
@@ -32,7 +32,7 @@ typedef struct {
 // must be already allocated
 typedef struct {
     size_t num_ranges; // initial: 0
-    size_t bv_bs; // initial: >= number of ranges
+    size_t bv_bs; // initial: >= number of ranges>>5
     uint32_t *ranges; // intial size: >= 4*(number of ranges)
     uint32_t *bvs; // initial size: >= bv_bs*2*(number of ranges)
 } rte_bv_ranges_t;
