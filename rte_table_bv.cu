@@ -85,8 +85,8 @@ static void *rte_table_bv_create(void *params, int socket_id, uint32_t entry_siz
     CHECK(cudaMalloc((void **) &t->num_ranges, sizeof(size_t)*t->num_fields));
 
     for(size_t i=0; i<t->num_fields; ++i) {
-        CHECK(cudaMemcpy(t->field_offsets+i, &t->field_defs->offset, sizeof(uint32_t), cudaMemcpyHostToDevice));
-        CHECK(cudaMemcpy(t->field_sizes+i, &t->field_defs->size, sizeof(uint32_t), cudaMemcpyHostToDevice));
+        CHECK(cudaMemcpy(t->field_offsets+i, &t->field_defs[i].offset, sizeof(uint32_t), cudaMemcpyHostToDevice));
+        CHECK(cudaMemcpy(t->field_sizes+i, &t->field_defs[i].size, sizeof(uint32_t), cudaMemcpyHostToDevice));
 
         CHECK(cudaMalloc((void **) &t->ranges_db[i], sizeof(uint32_t)*RTE_TABLE_BV_MAX_RANGES*2));
         CHECK(cudaMalloc((void **) &t->ranges_db[t->num_fields+i], sizeof(uint32_t)*RTE_TABLE_BV_MAX_RANGES*2));
@@ -119,13 +119,13 @@ static inline void cal_from_to(uint32_t *from_to, uint32_t *v, uint8_t type, uin
     } else {
         from_to[0]=(*v)&v[1];
         switch(size) {
-        case 8:
+        case 1:
             from_to[1]=(*v)|((uint8_t) (~v[1]));
             break;
-        case 16:
+        case 2:
             from_to[1]=(*v)|((uint16_t) (~v[1]));
             break;
-        case 32:
+        case 4:
             from_to[1]=(*v)|((uint32_t) (~v[1]));
             break;
         default:
@@ -246,12 +246,17 @@ __global__ void bv_search(	uint32_t **ranges, uint64_t *num_ranges, uint32_t *of
                             uint32_t **bvs, uint32_t bv_bs,
                             uint64_t pkts_mask, struct rte_mbuf **pkts,
                             uint32_t *vals, uint64_t *lookup_hit_mask) {
-
-    if((pkts_mask>>blockIdx.x)^1)
+    
+	if((pkts_mask>>blockIdx.x)^1)
         return;
+   
+    printf("blockIdx.x: %d threadIdx.x: %d offset: %u pkts: %p\n", blockIdx.x, threadIdx.x, offsets[threadIdx.x], pkts[blockIdx.x]);
+	printf("port: %u buf_len: %u\n", pkts[blockIdx.x]->port, pkts[blockIdx.x]->buf_len);
 
-    uint8_t *pkt=rte_pktmbuf_mtod(pkts[blockIdx.x], uint8_t *)+offsets[threadIdx.x];
-    __shared__ uint *bv[24];
+	uint8_t *pkt=rte_pktmbuf_mtod(pkts[blockIdx.x], uint8_t *)+offsets[threadIdx.x];
+    printf("pkt: %p\n", pkt);
+
+	__shared__ uint *bv[24];
     uint v=0;
     switch(sizes[threadIdx.x]) {
     case 1:
@@ -266,7 +271,8 @@ __global__ void bv_search(	uint32_t **ranges, uint64_t *num_ranges, uint32_t *of
     default:
         break;
     }
-
+	
+	printf("v: %08X", v);
     uint *range_dim=ranges[threadIdx.x], start=0, end=num_ranges[threadIdx.x];
 
     bv[threadIdx.x]=NULL;

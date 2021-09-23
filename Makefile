@@ -8,7 +8,7 @@ unittest_rte_bv: rte_bv
 	nvcc  -Werror all-warnings  $(CFLAGS) -o unittest_rte_bv unittest_rte_bv.c rte_bv.o $(CLIBS)
 
 unittest_rte_table_bv: rte_bv rte_table_bv
-	nvcc  -Werror all-warnings  $(CFLAGS) -o unittest_rte_table_bv unittest_rte_table_bv.c rte_table_bv.o rte_bv.o parser.c $(CLIBS)
+	nvcc  -forward-unknown-to-host-compiler -mssse3 -Werror  cross-execution-space-call,default-stream-launch,ext-lambda-captures-this,reorder  $(CFLAGS) -o unittest_rte_table_bv unittest_rte_table_bv.c rte_table_bv.o rte_bv.o parser.c $(CLIBS)
 
 rte_table_bv:
 	nvcc -Werror all-warnings $(CFLAGS) -O3 -c rte_table_bv.cu
