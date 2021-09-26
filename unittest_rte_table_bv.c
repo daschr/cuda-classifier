@@ -66,7 +66,9 @@ int setup_memory(int port_id) {
                   0, 0, ext_mem.elt_size,
                   rte_socket_id(), &ext_mem, 1);
 
-    if(!mpool_payload)
+	printf("mpool_payload: start: %p end: %p\n", mpool_payload, mpool_payload+ext_mem.buf_len);
+    
+	if(!mpool_payload)
         rte_exit(EXIT_FAILURE, "Error: could not create mempool from external memory\n");
 
     return 0;
@@ -92,14 +94,14 @@ int setup_port(int port_id) {
 
     CHECK_R((r=rte_eth_dev_configure(0, 1, 1, &port_conf))!=0);
 
-    CHECK_R((r=rte_eth_rx_queue_setup(port_id, 0, DEFAULT_NB_RX_DESC, rte_eth_dev_socket_id(port_id), NULL, mpool_payload))<0);
-
     struct rte_eth_txconf txconf=dev_info.default_txconf;
     txconf.offloads=port_conf.txmode.offloads;
 
-    CHECK_R((r=rte_eth_tx_queue_setup(port_id, 0, DEFAULT_NB_TX_DESC, rte_eth_dev_socket_id(port_id), &txconf))<0);
+    CHECK_R((r=rte_eth_tx_queue_setup(port_id, 0, DEFAULT_NB_TX_DESC, rte_eth_dev_socket_id(0), &txconf))<0);
 
-    CHECK_R((r=rte_eth_dev_start(port_id))<0);
+    CHECK_R((r=rte_eth_rx_queue_setup(port_id, 0, DEFAULT_NB_RX_DESC, rte_eth_dev_socket_id(0), NULL, mpool_payload))<0);
+    
+	CHECK_R((r=rte_eth_dev_start(port_id))<0);
 
     CHECK_R((r=rte_eth_promiscuous_enable(port_id))!=0);
     return 0;
@@ -107,20 +109,27 @@ int setup_port(int port_id) {
 #undef CHECK_R
 
 static __rte_noreturn void firewall(void *table) {
-    uint64_t *lookup_hit_mask, *lookup_hit_mask_d, pkts_mask;
-    uint32_t vals[BURST_SIZE];
+    volatile uint64_t *lookup_hit_mask, *lookup_hit_mask_d, pkts_mask;
+    volatile uint32_t *vals, *vals_d;
+	cudaHostAlloc((void **) &vals, sizeof(uint32_t)*BURST_SIZE, cudaHostAllocMapped);
+	cudaHostGetDevicePointer((void **) &vals_d, (uint32_t *) vals, 0);
 
 	cudaHostAlloc((void **) &lookup_hit_mask, sizeof(uint64_t), cudaHostAllocMapped);
-	cudaHostGetDevicePointer((void **) &lookup_hit_mask_d, lookup_hit_mask, 0);
+	cudaHostGetDevicePointer((void **) &lookup_hit_mask_d, (uint64_t *) lookup_hit_mask, 0);
 
-    struct rte_mbuf *bufs_rx[BURST_SIZE];
-    struct rte_mbuf *bufs_tx[BURST_SIZE];
+	struct rte_mbuf **bufs_rx;
+	struct rte_mbuf **bufs_rx_d;
+	cudaHostAlloc((void **) &bufs_rx, sizeof(struct rte_mbuf*)*BURST_SIZE, cudaHostAllocMapped);
+	cudaHostGetDevicePointer((void **) &bufs_rx_d, bufs_rx, 0);
+
+	struct rte_mbuf *bufs_tx[BURST_SIZE];
 
     const int (*lookup) (void *, struct rte_mbuf **, uint64_t, uint64_t *, void **)=rte_table_bv_ops.f_lookup;
 
     int16_t i,j;
-
-    for(;;) {
+	
+	*lookup_hit_mask=0;
+    for(;;*lookup_hit_mask=0) {
         const uint16_t nb_rx = rte_eth_rx_burst(0, 0, bufs_rx, BURST_SIZE);
 
         if(unlikely(nb_rx==0))
@@ -128,13 +137,12 @@ static __rte_noreturn void firewall(void *table) {
 
         pkts_mask=(1<<nb_rx)-1;
 
-        lookup(table, bufs_rx, pkts_mask, lookup_hit_mask_d, (void **) vals);
+        lookup(table, bufs_rx_d, pkts_mask, (uint64_t *) lookup_hit_mask_d, (void **) vals_d);
 
         for(i=0,j=0; i<nb_rx; ++i)
             if((*lookup_hit_mask>>i)&1&(vals[i]!=RTE_TABLE_VAL_DROP))
                 bufs_tx[j++]=bufs_rx[i];
 
-        printf("pkts_mask: %16x lookup_hit_mask: %16x\n", pkts_mask, *lookup_hit_mask);
 
         const uint16_t nb_tx = rte_eth_tx_burst(0, 0, bufs_tx, j);
         if(unlikely(nb_tx<nb_rx)) {
