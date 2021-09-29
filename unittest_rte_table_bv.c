@@ -65,8 +65,6 @@ int setup_memory(int port_id) {
     mpool_payload=rte_pktmbuf_pool_create_extbuf("payload_mpool", DEFAULT_NB_MBUF,
                   0, 0, ext_mem.elt_size,
                   rte_socket_id(), &ext_mem, 1);
-
-	printf("mpool_payload: start: %p end: %p\n", mpool_payload, mpool_payload+ext_mem.buf_len);
     
 	if(!mpool_payload)
         rte_exit(EXIT_FAILURE, "Error: could not create mempool from external memory\n");
@@ -138,11 +136,11 @@ static __rte_noreturn void firewall(void *table) {
         pkts_mask=(1<<nb_rx)-1;
 
         lookup(table, bufs_rx_d, pkts_mask, (uint64_t *) lookup_hit_mask_d, (void **) vals_d);
+		printf("lookup_hit_mask: %016X\n", *lookup_hit_mask);
 
         for(i=0,j=0; i<nb_rx; ++i)
-            if((*lookup_hit_mask>>i)&1&(vals[i]!=RTE_TABLE_VAL_DROP))
+            if((*lookup_hit_mask>>i)&1&(vals[i]>127))
                 bufs_tx[j++]=bufs_rx[i];
-
 
         const uint16_t nb_tx = rte_eth_tx_burst(0, 0, bufs_tx, j);
         if(unlikely(nb_tx<nb_rx)) {
@@ -189,8 +187,9 @@ int main(int ac, char *as[]) {
     }
 
     struct rte_table_bv_field_def fdefs[5];
-    uint32_t fdefs_offsets[5]= {	offsetof(struct rte_ipv4_hdr, src_addr), offsetof(struct rte_ipv4_hdr, dst_addr), offsetof(struct rte_tcp_hdr, src_port),
-                                    offsetof(struct rte_tcp_hdr, dst_port), offsetof(struct rte_ipv4_hdr, next_proto_id)
+    uint32_t fdefs_offsets[5]= {	offsetof(struct rte_ipv4_hdr, src_addr), offsetof(struct rte_ipv4_hdr, dst_addr),  
+									sizeof(struct rte_ipv4_hdr)+offsetof(struct rte_tcp_hdr, src_port), 
+									sizeof(struct rte_ipv4_hdr)+offsetof(struct rte_tcp_hdr, dst_port), offsetof(struct rte_ipv4_hdr, next_proto_id)
                                },
                                fdefs_sizes[5]= {4,4,2,2,1};
 
@@ -200,8 +199,6 @@ int main(int ac, char *as[]) {
         fdefs[i].size=fdefs_sizes[i];
     }
 
-    printf("parsed rules from \"%s\"\n", as[0]);
-
     struct rte_table_bv_params table_params = { .num_fields=5, .field_defs=fdefs };
 
     void *table=rte_table_bv_ops.f_create(&table_params, rte_socket_id(), 0);
@@ -210,12 +207,12 @@ int main(int ac, char *as[]) {
         goto err;
 
     rte_table_bv_ops.f_add_bulk(table, (void **) ruleset.rules, NULL, ruleset.num_rules, NULL, NULL);
-
-    firewall(table);
+	free_ruleset(&ruleset);
+    
+	firewall(table);
 
     rte_table_bv_ops.f_free(table);
 
-    free_ruleset(&ruleset);
     rte_eal_cleanup();
     return EXIT_SUCCESS;
 

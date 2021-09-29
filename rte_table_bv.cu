@@ -9,8 +9,21 @@ extern "C" {
 #include <dpdk/rte_log.h>
 #include <stdlib.h>
 
+#ifdef RTE_TABLE_STATS_COLLECT
+
+#define RTE_TABLE_BV_STATS_PKTS_IN_ADD(table, val) table->stats.n_pkts_in += val
+#define RTE_TABLE_BV_STATS_PKTS_LOOKUP_MISS(table, val) table->stats.n_pkts_lookup_miss += val
+
+#else
+
+#define RTE_TABLE_BV_STATS_PKTS_IN_ADD(table, val)
+#define RTE_TABLE_BV_STATS_PKTS_LOOKUP_MISS(table, val)
+
+#endif
+
 struct rte_table_bv {
     uint32_t num_fields;
+    struct rte_table_stats stats;
     const struct rte_table_bv_field_def *field_defs;
 
     uint8_t *act_buf; // size==1, pointer for gpu
@@ -252,11 +265,9 @@ __global__ void bv_search(	uint32_t **ranges, uint64_t *num_ranges, uint32_t *of
                             uint32_t **bvs, uint32_t bv_bs,
                             ulong pkts_mask, uint8_t **pkts,
                             volatile uint *__restrict__ vals, volatile ulong *lookup_hit_mask) {
-	
-	if(!((pkts_mask>>blockIdx.x)&1))
-        return;
 
-    //printf("blockIdx.x: %d threadIdx.x: %d offset: %u pkts: %p\n", blockIdx.x, threadIdx.x, offsets[threadIdx.x], pkts[blockIdx.x]);
+    if(!((pkts_mask>>blockIdx.x)&1))
+        return;
 
     uint8_t *pkt=pkts[blockIdx.x]+offsets[threadIdx.x];
 
@@ -265,92 +276,95 @@ __global__ void bv_search(	uint32_t **ranges, uint64_t *num_ranges, uint32_t *of
     switch(sizes[threadIdx.x]) {
     case 1:
         v=*pkt;
+        printf("[%d|%d] 8bit: %u\n", blockIdx.x, threadIdx.x, v);
         break;
     case 2:
-        v=*pkt+(pkt[1]<<8);
+        v=pkt[1]+(pkt[0]<<8);
+        printf("[%d|%d] 16bit: %u\n", blockIdx.x, threadIdx.x, v);
         break;
     case 4:
-        v=*pkt+(pkt[1]<<8)+(pkt[2]<<16)+(pkt[3]<<24);
+        printf("[%d|%d] IP: %u.%u.%u.%u\n", blockIdx.x, threadIdx.x, pkt[0], pkt[1], pkt[2], pkt[3]);
+        v=pkt[3]+(pkt[2]<<8)+(pkt[1]<<16)+(pkt[0]<<24);
         break;
     default:
+        printf("[%d|%d] unknown size: %ubit\n", blockIdx.x, threadIdx.x, sizes[threadIdx.x]);
         break;
     }
 
-    //printf("[%d|%d] v: %08X\n", blockIdx.x, threadIdx.x, v);
-    uint *range_dim=ranges[threadIdx.x], start=0, end=num_ranges[threadIdx.x];
-
+    uint *range_dim=ranges[threadIdx.x];
+    long se[]= {0, (long) num_ranges[threadIdx.x]};
+    uint8_t l,r;
     bv[threadIdx.x]=NULL;
-    for(uint i=end>>1; start<end; i=(start+end)>>1) {
-        if(v<range_dim[i<<1]) {
-            end=i;
-            continue;
+    for(long i=se[1]>>1; se[0]<=se[1]; i=(se[0]+se[1])>>1) {
+        l=v>=range_dim[i<<1];
+        r=v<=range_dim[(i<<1)+1];
+
+        if(l&r) {
+            bv[threadIdx.x]=bvs[threadIdx.x]+i*RTE_TABLE_BV_BS;
+            break;
         }
 
-        if(v>range_dim[(i<<1)+1]) {
-            start=i;
-            continue;
-        }
-
-        bv[threadIdx.x]=bvs[threadIdx.x]+i*RTE_TABLE_BV_BS;
-        break;
+        se[!l]=!l?i-1:i+1;
     }
 
-    //printf("[%d|%d] bv: %p\n", blockIdx.x, threadIdx.x, bv[threadIdx.x]);
     __syncthreads();
     if(!threadIdx.x) {
         for(uint i=0; i<blockDim.x; ++i)
-            if(bv[i]==NULL) {
-                //printf("bv[%u] == NULL\n", i);
+            if(bv[i]==NULL)
                 goto end;
-            }
         uint x, pos;
         for(uint i=0; i<bv_bs; ++i) {
             x=bv[0][i];
-            for(uint b=0; b<blockDim.x; ++b) {
-                //printf("bv[%u][%u]=%u\n", b, i, bv[b][i]);
+            for(uint b=0; b<blockDim.x; ++b)
                 x&=bv[b][i];
-            }
 
-            //printf("x: %u\n", x);
             if((pos=__ffs(x))!=0) {
-                //printf("vals[%d]=%u\n", blockIdx.x, (i<<5)+pos);
                 vals[blockIdx.x]=(i<<5)+pos;
-                //printf("lookup_hit_mask |= %X\n", 1<<blockIdx.x);
-				atomicOr((unsigned long long *)lookup_hit_mask, 1<<blockIdx.x);
-                //printf("*lookup_hit_mask: %lu\n", *lookup_hit_mask);
-				break;
+                atomicOr((unsigned long long *)lookup_hit_mask, 1<<blockIdx.x);
+                break;
             }
         }
     }
 end:
-	__syncthreads();
+    __syncthreads();
 }
 
 static int rte_table_bv_lookup(void *t_r, struct rte_mbuf **pkts, uint64_t pkts_mask, uint64_t *lookup_hit_mask, void **e) {
     struct rte_table_bv *t=(struct rte_table_bv *) t_r;
 
-    for(int i=0; (pkts_mask>>i)&1; ++i)
-        t->pkts_data_h[i]=rte_pktmbuf_mtod(pkts[i], uint8_t *);
-    
-	bv_search<<<64, t->num_fields>>>(	t->ranges_db_dev+(t->num_fields*(*t->act_buf_h)), t->num_ranges,
+    uint32_t n_pkts_in=__builtin_popcountll(pkts_mask);
+    RTE_TABLE_BV_STATS_PKTS_IN_ADD(t, n_pkts_in);
+
+    for(uint32_t i=0; i<n_pkts_in; ++i)
+        if((pkts_mask>>i)&1)
+            t->pkts_data_h[i]=rte_pktmbuf_mtod(pkts[i], uint8_t *);
+
+    bv_search<<<64, t->num_fields>>>(	t->ranges_db_dev+(t->num_fields*(*t->act_buf_h)), t->num_ranges,
                                         t->field_offsets, t->field_sizes,
                                         t->bvs_db_dev+(t->num_fields*(*t->act_buf_h)), RTE_TABLE_BV_BS,
                                         pkts_mask, t->pkts_data,
                                         (uint32_t *) e, lookup_hit_mask);
-	cudaStreamSynchronize(0);
-	
-	cudaError_t err = cudaGetLastError();
+    cudaStreamSynchronize(0);
+
+    RTE_TABLE_BV_STATS_PKTS_LOOKUP_MISS(t, n_pkts_in-__builtin_popcountll(*lookup_hit_mask));
+
+    cudaError_t err = cudaGetLastError();
     if(err!=cudaSuccess)
-        printf("Error: %s\n", cudaGetErrorString(err));
+        printf("[bv_search] error: %s\n", cudaGetErrorString(err));
     return 0;
 }
 
-/*
-static int rte_table_bv_stats_read(void *t, struct rte_table_stats *stats, int clear) {
+static int rte_table_bv_stats_read(void *t_r, struct rte_table_stats *stats, int clear) {
+	struct rte_table_bv *t = (struct rte_table_bv *) t_r;
+
+	if (stats != NULL)
+		memcpy(stats, &t->stats, sizeof(t->stats));
+
+	if (clear)
+		memset(&t->stats, 0, sizeof(t->stats));
 
     return 0;
 }
-*/
 
 struct rte_table_ops rte_table_bv_ops = {
     .f_create = rte_table_bv_create,
@@ -360,7 +374,7 @@ struct rte_table_ops rte_table_bv_ops = {
     .f_add_bulk = rte_table_bv_entry_add_bulk,
     .f_delete_bulk = rte_table_bv_entry_delete_bulk,
     .f_lookup = rte_table_bv_lookup,
-    .f_stats = NULL
+    .f_stats = rte_table_bv_stats_read
 };
 
 #ifdef __cplusplus

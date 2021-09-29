@@ -105,11 +105,11 @@ void rte_bv_markers_free(rte_bv_markers_t *markers) {
     uint32_t n=0, i;
     rte_bv_marker_list_t *l;
 
-    while(rte_hash_iterate(markers->table, (const void **) &i, (void **) &l, &n)>=0){
-    	free(l->list[0]);
-		free(l->list[1]);
-		free(l);
-	}
+    while(rte_hash_iterate(markers->table, (const void **) &i, (void **) &l, &n)>=0) {
+        free(l->list[0]);
+        free(l->list[1]);
+        free(l);
+    }
 
     rte_hash_free(markers->table);
 }
@@ -146,8 +146,6 @@ void rte_bv_add_range_host(rte_bv_ranges_t *ranges, uint32_t from, uint32_t to, 
 void rte_bv_add_range_gpu(rte_bv_ranges_t *ranges, uint32_t from, uint32_t to, size_t bv_size, const uint32_t *bv) {
     cudaMemcpy(ranges->ranges+(ranges->num_ranges<<1), &from, sizeof(uint32_t), cudaMemcpyHostToDevice);
     cudaMemcpy(ranges->ranges+((ranges->num_ranges<<1)+1), &to, sizeof(uint32_t), cudaMemcpyHostToDevice);
-    //ranges->ranges[ranges->num_ranges<<1]=from;
-    //ranges->ranges[(ranges->num_ranges<<1)+1]=to;
     cudaMemcpy(ranges->bvs+(ranges->num_ranges*ranges->bv_bs), bv, sizeof(uint32_t)*bv_size, cudaMemcpyHostToDevice);
     ++ranges->num_ranges;
 }
